@@ -3,7 +3,7 @@
 import {
   state, subscribe,
   addTheme, removeTheme, renameTheme,
-  moveConcept, mergeConcepts,
+  moveConcept,
   addNote, updateNote, getNotesForTheme,
   getConceptsForTheme, getUngroupedConcepts,
   getExcerptsForConcept, getThemeColor,
