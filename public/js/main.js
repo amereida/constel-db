@@ -148,24 +148,9 @@ function showLoginScreen() {
   document.querySelector(".tab-panels")?.style.setProperty("display", "none");
 
   loginEl.querySelector("#loginBtn")?.addEventListener("click", () => {
-    if (window.netlifyIdentity) {
-      window.netlifyIdentity.open("login");
-    } else {
-      console.warn("Identity widget not loaded yet, retrying...");
-      // Fallback: wait for widget then open
-      const retry = setInterval(() => {
-        if (window.netlifyIdentity) {
-          clearInterval(retry);
-          window.netlifyIdentity.init({
-            APIUrl: "https://constel-amereida.netlify.app/.netlify/identity"
-          });
-          initApi(window.netlifyIdentity);
-          window.netlifyIdentity.on("login", () => location.reload());
-          window.netlifyIdentity.open("login");
-        }
-      }, 200);
-      setTimeout(() => clearInterval(retry), 10000);
-    }
+    // Redirect directly to Google OAuth via Netlify Identity API
+    const siteUrl = location.origin;
+    window.location.href = `${siteUrl}/.netlify/identity/authorize?provider=google`;
   });
 }
 
