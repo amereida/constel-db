@@ -148,6 +148,19 @@ function showLoginScreen() {
   loginEl.querySelector("#loginBtn")?.addEventListener("click", () => {
     if (window.netlifyIdentity) {
       window.netlifyIdentity.open("login");
+    } else {
+      console.warn("Identity widget not loaded yet, retrying...");
+      // Fallback: wait for widget then open
+      const retry = setInterval(() => {
+        if (window.netlifyIdentity) {
+          clearInterval(retry);
+          window.netlifyIdentity.init();
+          initApi(window.netlifyIdentity);
+          window.netlifyIdentity.on("login", () => location.reload());
+          window.netlifyIdentity.open("login");
+        }
+      }, 200);
+      setTimeout(() => clearInterval(retry), 10000);
     }
   });
 }
