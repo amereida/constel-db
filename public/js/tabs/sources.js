@@ -1,140 +1,294 @@
-// sources.js — Tab 1: gestión del corpus
+// sources.js -- Tab 1: gestion del corpus (grilla Mondrian + ficha + editor inline)
 
-import { state, addSource, updateSource, removeSource, getExcerptsForSource, getSourceContent, subscribe } from "../state.js";
+import { state, addSource, updateSource, updateSourceContent, removeSource, getExcerptsForSource, getSourceContent, loadExcerptsForSource, subscribe } from "../state.js";
 import { navigateTo } from "../router.js";
 
-// cache de textos cargados (sourceId → text)
+// cache de textos cargados (sourceId -> text)
 const textCache = new Map();
+let selectedSourceId = null;
 
 export async function initSourcesTab() {
-  renderSourcesList();
-  subscribe(() => renderSourcesList());
+  renderSourcesGrid();
+  subscribe(() => renderSourcesGrid());
   initCorpusSearch();
   initAddSourceButton();
 }
 
 export function onSourcesActivated() {
-  renderSourcesList();
+  renderSourcesGrid();
 }
 
-function renderSourcesList() {
-  const listEl = document.getElementById("sourcesListContent");
-  const searchInput = document.getElementById("corpusSearchInput");
-  if (!listEl) return;
+// -- Grilla Mondrian de fuentes -------------------------------------------
+
+function renderSourcesGrid() {
+  const gridEl = document.getElementById("sourcesGrid");
+  if (!gridEl) return;
 
   const all = Object.values(state.sources).map(src => {
-    // excerpt_count comes from the API; fall back to local cache
     const excerptCount = src.excerpt_count != null
       ? Number(src.excerpt_count)
       : getExcerptsForSource(src.id).length;
     return { ...src, excerptCount };
   });
 
-  // sort by date, then title
   all.sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.title || "").localeCompare(b.title || ""));
 
+  const searchInput = document.getElementById("corpusSearchInput");
   if (searchInput) searchInput.placeholder = `Buscar en los ${all.length} textos`;
 
   if (!all.length) {
-    listEl.innerHTML = `<p class="placeholder">No hay fuentes en el corpus</p>`;
+    gridEl.innerHTML = `<p class="placeholder">No hay fuentes en el corpus</p>`;
     return;
   }
 
-  listEl.innerHTML = `<div class="source-list">${all.map(s => renderSourceCard(s)).join("")}</div>`;
+  gridEl.innerHTML = `<div class="sources-grid">${all.map(s => renderSourceCell(s)).join("")}</div>`;
 
-  // event listeners
-  listEl.querySelectorAll(".source-card").forEach(card => {
-    const sid = card.dataset.sourceId;
-
-    card.addEventListener("click", () => {
-      if (sid) navigateTo("reader", { src: sid });
+  gridEl.querySelectorAll(".source-cell").forEach(cell => {
+    const sid = cell.dataset.sourceId;
+    cell.addEventListener("click", () => {
+      selectedSourceId = sid;
+      // Update selection visuals
+      gridEl.querySelectorAll(".source-cell").forEach(c => c.classList.toggle("selected", c.dataset.sourceId === sid));
+      renderSourceDetail(sid);
     });
-    card.addEventListener("mouseenter", () => previewSource(sid));
-
-    const editBtn = card.querySelector(".source-edit-btn");
-    if (editBtn) {
-      editBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        showEditModal(sid);
-      });
-    }
   });
+
+  // Re-apply selection if one was active
+  if (selectedSourceId) {
+    const sel = gridEl.querySelector(`[data-source-id="${selectedSourceId}"]`);
+    if (sel) sel.classList.add("selected");
+  }
 }
 
-function renderSourceCard(src) {
-  const pct = src.word_count > 0 ? Math.round((countMarkedChars(src.id) / (src.word_count * 5)) * 100) : 0;
-  const metaParts = [src.author, src.date].filter(Boolean);
-  const metaLine = metaParts.join(" · ");
+function renderSourceCell(src) {
+  const wc = src.word_count || 0;
+  // Span rows based on word count (Mondrian effect)
+  let rowSpan = 2;
+  let colSpan = 1;
+  if (wc > 15000) { rowSpan = 5; colSpan = 2; }
+  else if (wc > 8000) { rowSpan = 4; colSpan = 2; }
+  else if (wc > 3000) { rowSpan = 3; }
+
+  const isSelected = src.id === selectedSourceId;
 
   return `
-    <div class="card source-card" data-source-id="${src.id}">
-      <div class="source-card-header">
-        <h3>${escapeHtml(src.title || src.filename)}</h3>
-        <button class="btn-icon source-edit-btn" title="Editar metadatos"><img src="icons/icons_edit.svg" class="btn-svg-icon" alt="" /></button>
+    <div class="source-cell ${isSelected ? "selected" : ""}"
+         data-source-id="${src.id}"
+         style="grid-row: span ${rowSpan}; grid-column: span ${colSpan}">
+      <div>
+        <div class="source-cell-title">${escapeHtml(src.title || src.filename)}</div>
+        ${src.author ? `<div class="source-cell-author">${escapeHtml(src.author)}</div>` : ""}
       </div>
-      ${metaLine ? `<div class="source-author">${escapeHtml(metaLine)}</div>` : ""}
-      <div class="source-meta">
-        <span class="stat">${src.excerptCount || 0} §</span>
-        <span class="stat">${src.word_count || "?"} palabras</span>
+      <div class="source-cell-footer">
+        <span class="source-cell-year">${escapeHtml(src.date || "")}</span>
+        <span class="source-cell-words">${wc.toLocaleString()}</span>
       </div>
-      ${src.word_count > 0 ? `
-        <div class="source-progress">
-          <div class="source-progress-bar" style="width: ${Math.min(pct, 100)}%"></div>
-        </div>
-      ` : ""}
     </div>
   `;
 }
 
-async function previewSource(sourceId) {
-  const previewEl = document.getElementById("sourcePreviewContent");
-  if (!previewEl || !sourceId) return;
+// -- Ficha de fuente (columna derecha) ------------------------------------
 
-  if (textCache.has(sourceId)) {
-    showPreview(previewEl, textCache.get(sourceId));
+async function renderSourceDetail(sourceId) {
+  const container = document.getElementById("sourceDetailContent");
+  if (!container || !sourceId) return;
+
+  const src = state.sources[sourceId];
+  if (!src) {
+    container.innerHTML = `<p class="placeholder">Fuente no encontrada</p>`;
     return;
   }
 
-  previewEl.innerHTML = `<p class="placeholder">Cargando...</p>`;
-  try {
-    const content = await getSourceContent(sourceId);
-    if (content) {
-      textCache.set(sourceId, content);
-      showPreview(previewEl, content);
-    } else {
-      previewEl.innerHTML = `<p class="placeholder">Sin contenido</p>`;
-    }
-  } catch {
-    previewEl.innerHTML = `<p class="placeholder">No se pudo cargar el texto</p>`;
-  }
-}
+  container.innerHTML = `<p class="placeholder">Cargando...</p>`;
 
-function showPreview(el, text) {
-  const maxChars = 3000;
-  const truncated = text.length > maxChars;
-  el.textContent = truncated ? text.slice(0, maxChars) : text;
-  if (truncated) {
-    el.innerHTML += `<p class="preview-truncated">... (${text.length.toLocaleString()} caracteres en total)</p>`;
-  }
-}
-
-function countMarkedChars(sourceId) {
-  if (!sourceId) return 0;
+  // Load excerpts for this source
+  await loadExcerptsForSource(sourceId);
   const excerpts = getExcerptsForSource(sourceId);
-  const chars = new Set();
-  for (const e of excerpts) {
-    const start = e.start;
-    const end = e.end;
-    if (typeof start === "number" && typeof end === "number") {
-      for (let i = start; i < end; i++) chars.add(i);
+
+  // Collect unique concepts from excerpts
+  const conceptMap = new Map();
+  for (const exc of excerpts) {
+    if (exc.conceptIds) {
+      for (const cid of exc.conceptIds) {
+        const concept = state.concepts[cid];
+        if (concept && !conceptMap.has(cid)) {
+          conceptMap.set(cid, concept);
+        }
+      }
     }
   }
-  return chars.size;
+  const concepts = [...conceptMap.values()];
+
+  const isAdmin = state.currentUser?.role === "admin";
+
+  container.innerHTML = `
+    <div class="source-detail-view">
+      <div class="source-detail-header">
+        <h2>${escapeHtml(src.title || src.filename)}</h2>
+        <div class="source-detail-actions">
+          <button class="btn-primary btn-sm" id="detailReadBtn">Leer</button>
+          ${isAdmin ? `<button class="btn-sm" id="detailEditBtn">Editar</button>` : ""}
+        </div>
+      </div>
+
+      <div class="source-detail-meta">
+        ${src.author ? `<div><strong>Autor:</strong> ${escapeHtml(src.author)}</div>` : ""}
+        ${src.date ? `<div><strong>Fecha:</strong> ${escapeHtml(src.date)}</div>` : ""}
+        <div>${(src.word_count || 0).toLocaleString()} palabras</div>
+      </div>
+
+      ${excerpts.length ? `
+        <div class="source-detail-section">
+          <h3>${excerpts.length} secciones</h3>
+          <div class="source-detail-excerpts">
+            ${excerpts.map(exc => {
+              const preview = (exc.text || "").slice(0, 80) + ((exc.text || "").length > 80 ? "..." : "");
+              const excConcepts = (exc.conceptIds || []).map(cid => state.concepts[cid]?.label).filter(Boolean);
+              return `
+                <div class="source-excerpt-item" data-exc-source="${sourceId}">
+                  ${escapeHtml(preview)}
+                  ${excConcepts.length ? `<div class="source-excerpt-concepts">${excConcepts.map(escapeHtml).join(", ")}</div>` : ""}
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      ` : ""}
+
+      ${concepts.length ? `
+        <div class="source-detail-section">
+          <h3>${concepts.length} conceptos</h3>
+          <div class="source-detail-concepts">
+            ${concepts.map(c => `<span class="source-concept-tag">${escapeHtml(c.label)}</span>`).join("")}
+          </div>
+        </div>
+      ` : ""}
+    </div>
+  `;
+
+  // Event: Leer
+  document.getElementById("detailReadBtn")?.addEventListener("click", () => {
+    navigateTo("reader", { src: sourceId });
+  });
+
+  // Event: Editar
+  document.getElementById("detailEditBtn")?.addEventListener("click", () => {
+    renderSourceEditor(sourceId);
+  });
+
+  // Event: click excerpt -> go to reader
+  container.querySelectorAll(".source-excerpt-item").forEach(el => {
+    el.addEventListener("click", () => {
+      navigateTo("reader", { src: sourceId });
+    });
+  });
 }
 
-/**
- * Obtiene el texto de un source (desde cache o API).
- */
+// -- Editor inline (reemplaza ficha) --------------------------------------
+
+async function renderSourceEditor(sourceId) {
+  const container = document.getElementById("sourceDetailContent");
+  if (!container || !sourceId) return;
+
+  const src = state.sources[sourceId];
+  if (!src) return;
+
+  container.innerHTML = `<p class="placeholder">Cargando texto...</p>`;
+
+  // Load content
+  let content = "";
+  try {
+    content = await getSourceContent(sourceId) || "";
+    textCache.set(sourceId, content);
+  } catch {
+    container.innerHTML = `<p class="placeholder">Error al cargar el texto</p>`;
+    return;
+  }
+
+  const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+
+  container.innerHTML = `
+    <div class="source-editor-view">
+      <div class="source-editor-fields">
+        <label>
+          <span>Titulo</span>
+          <input type="text" id="editorTitle" value="${escapeAttr(src.title)}" />
+        </label>
+        <label>
+          <span>Autor</span>
+          <input type="text" id="editorAuthor" value="${escapeAttr(src.author || "")}" placeholder="Nombre del autor" />
+        </label>
+        <label>
+          <span>Fecha</span>
+          <input type="text" id="editorDate" value="${escapeAttr(src.date || "")}" placeholder="ej: 1983" />
+        </label>
+      </div>
+
+      <textarea class="source-editor-content" id="editorContent">${escapeHtml(content)}</textarea>
+
+      <div class="source-editor-actions">
+        <div>
+          <button class="btn-sm btn-danger" id="editorDeleteBtn">Eliminar</button>
+          <span class="source-editor-wordcount" id="editorWordCount">${wordCount.toLocaleString()} palabras</span>
+        </div>
+        <div class="source-editor-actions-right">
+          <button class="btn-sm" id="editorCancelBtn">Cancelar</button>
+          <button class="btn-primary btn-sm" id="editorSaveBtn">Guardar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Focus at beginning
+  const textarea = document.getElementById("editorContent");
+  if (textarea) {
+    textarea.setSelectionRange(0, 0);
+    textarea.scrollTop = 0;
+    textarea.focus();
+
+    textarea.addEventListener("input", () => {
+      const wc = textarea.value.trim() ? textarea.value.trim().split(/\s+/).length : 0;
+      const wcEl = document.getElementById("editorWordCount");
+      if (wcEl) wcEl.textContent = `${wc.toLocaleString()} palabras`;
+    });
+  }
+
+  // Cancel
+  document.getElementById("editorCancelBtn")?.addEventListener("click", () => {
+    renderSourceDetail(sourceId);
+  });
+
+  // Save
+  document.getElementById("editorSaveBtn")?.addEventListener("click", async () => {
+    const title = document.getElementById("editorTitle").value.trim() || src.title;
+    const author = document.getElementById("editorAuthor").value.trim();
+    const date = document.getElementById("editorDate").value.trim();
+    const newContent = document.getElementById("editorContent").value;
+
+    try {
+      await updateSource(sourceId, { title, author, date, content: newContent });
+      textCache.delete(sourceId);
+      renderSourceDetail(sourceId);
+    } catch (err) {
+      alert("Error al guardar: " + err.message);
+    }
+  });
+
+  // Delete
+  document.getElementById("editorDeleteBtn")?.addEventListener("click", async () => {
+    if (!confirm(`Eliminar "${src.title}" y todos sus excerpts?`)) return;
+    try {
+      await removeSource(sourceId);
+      selectedSourceId = null;
+      container.innerHTML = `<p class="placeholder">Selecciona una fuente</p>`;
+    } catch (err) {
+      alert("Error al eliminar: " + err.message);
+    }
+  });
+}
+
+// -- Obtener texto de source (export para reader) -------------------------
+
 export async function getSourceText(sourceId) {
   if (textCache.has(sourceId)) return textCache.get(sourceId);
   const content = await getSourceContent(sourceId);
@@ -145,19 +299,18 @@ export async function getSourceText(sourceId) {
   return null;
 }
 
-// ── Botón Agregar fuente (admin) ─────────────────────────────────────────────
+// -- Boton Agregar fuente (admin) -----------------------------------------
 
 function initAddSourceButton() {
   const btn = document.getElementById("addSourceBtn");
   if (!btn) return;
-  // In dev mode (localhost) or if user is admin, show the button
   const isDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  if (isDev) btn.hidden = false;
-  // TODO: also show for admin users when auth info is available
+  const isAdmin = state.currentUser?.role === "admin";
+  if (isDev || isAdmin) btn.hidden = false;
   btn.addEventListener("click", () => showImportModal());
 }
 
-// ── Modal de importación de fuente nueva ─────────────────────────────────────
+// -- Modal de importacion de fuente nueva ---------------------------------
 
 function showImportModal() {
   const prev = document.getElementById("sourceEditModal");
@@ -175,8 +328,8 @@ function showImportModal() {
       <form class="modal-form" id="sourceImportForm">
         <div class="modal-form-row">
           <label class="modal-field-grow">
-            <span>Título</span>
-            <input type="text" name="title" placeholder="Título del texto" required />
+            <span>Titulo</span>
+            <input type="text" name="title" placeholder="Titulo del texto" required />
           </label>
           <label>
             <span>Fecha</span>
@@ -194,7 +347,7 @@ function showImportModal() {
             <input type="file" id="importFileInput" accept=".txt,.md,.text" hidden />
             <span class="content-word-count" id="importWordCount"></span>
           </div>
-          <textarea name="content" id="importContentArea" class="content-editor" placeholder="Pega o escribe el texto aquí…" required></textarea>
+          <textarea name="content" id="importContentArea" class="content-editor" placeholder="Pega o escribe el texto aqui..." required></textarea>
         </label>
         <div class="modal-actions">
           <div></div>
@@ -210,7 +363,6 @@ function showImportModal() {
   document.body.appendChild(modal);
   setupModalClose(modal);
 
-  // File upload
   const fileBtn = document.getElementById("importFileBtn");
   const fileInput = document.getElementById("importFileInput");
   const contentArea = document.getElementById("importContentArea");
@@ -224,7 +376,6 @@ function showImportModal() {
     reader.onload = () => {
       contentArea.value = reader.result;
       updateWordCount(contentArea, wordCountEl);
-      // Auto-fill title from filename if empty
       const titleInput = modal.querySelector('input[name="title"]');
       if (!titleInput.value) {
         titleInput.value = file.name.replace(/\.(txt|md|text)$/i, "");
@@ -235,7 +386,6 @@ function showImportModal() {
 
   contentArea.addEventListener("input", () => updateWordCount(contentArea, wordCountEl));
 
-  // Submit
   document.getElementById("sourceImportForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
@@ -243,16 +393,10 @@ function showImportModal() {
     const content = form.get("content").trim();
     if (!title || !content) return;
 
-    const filename = title.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, "").trim() + ".txt";
+    const filename = title.replace(/[^a-zA-Z0-9\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00c1\u00c9\u00cd\u00d3\u00da\u00d1 ]/g, "").trim() + ".txt";
 
     try {
-      await addSource({
-        filename,
-        title,
-        author: form.get("author").trim(),
-        date: form.get("date").trim(),
-        content,
-      });
+      await addSource({ filename, title, author: form.get("author").trim(), date: form.get("date").trim(), content });
       modal.remove();
     } catch (err) {
       alert("Error: " + err.message);
@@ -262,118 +406,7 @@ function showImportModal() {
   modal.querySelector('input[name="title"]').focus();
 }
 
-// ── Modal de edición de metadatos ────────────────────────────────────────────
-
-function showEditModal(sourceId) {
-  const src = state.sources[sourceId];
-  if (!src) return;
-
-  const prev = document.getElementById("sourceEditModal");
-  if (prev) prev.remove();
-
-  const modal = document.createElement("div");
-  modal.id = "sourceEditModal";
-  modal.className = "modal-overlay";
-  modal.innerHTML = `
-    <div class="modal-box" id="editModalBox">
-      <div class="modal-header">
-        <h3>Editar fuente</h3>
-        <button class="btn-icon modal-close" title="Cerrar"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
-      </div>
-      <form class="modal-form" id="sourceEditForm">
-        <label>
-          <span>Título</span>
-          <input type="text" name="title" value="${escapeAttr(src.title)}" />
-        </label>
-        <label>
-          <span>Autor</span>
-          <input type="text" name="author" value="${escapeAttr(src.author || "")}" placeholder="Nombre del autor" />
-        </label>
-        <label>
-          <span>Fecha</span>
-          <input type="text" name="date" value="${escapeAttr(src.date || "")}" placeholder="ej: 1983, 2026-03-15" />
-        </label>
-        <hr />
-        <button type="button" class="btn-sm" id="editOriginalBtn">Editar original: ${escapeHtml(src.filename)}</button>
-        <div id="contentEditorContainer" hidden>
-          <div class="content-editor-toolbar">
-            <span class="content-word-count" id="editWordCount"></span>
-          </div>
-          <textarea name="content" id="editContentArea" class="content-editor" placeholder="Cargando..."></textarea>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn-sm btn-danger" id="sourceDeleteBtn">Eliminar fuente</button>
-          <div class="modal-actions-right">
-            <button type="button" class="btn-sm modal-close">Cancelar</button>
-            <button type="submit" class="btn-primary btn-sm">Guardar</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-  setupModalClose(modal);
-
-  // "Editar original" — expand modal and load content
-  const editOrigBtn = document.getElementById("editOriginalBtn");
-  const contentContainer = document.getElementById("contentEditorContainer");
-  const contentArea = document.getElementById("editContentArea");
-  const wordCountEl = document.getElementById("editWordCount");
-  const modalBox = document.getElementById("editModalBox");
-  let contentLoaded = false;
-
-  editOrigBtn.addEventListener("click", async () => {
-    modalBox.classList.add("modal-box-lg");
-    contentContainer.hidden = false;
-    editOrigBtn.hidden = true;
-
-    if (!contentLoaded) {
-      contentArea.value = "Cargando…";
-      const content = await getSourceContent(sourceId);
-      contentArea.value = content || "";
-      contentLoaded = true;
-      updateWordCount(contentArea, wordCountEl);
-    }
-    contentArea.setSelectionRange(0, 0);
-    contentArea.scrollTop = 0;
-    contentArea.focus();
-  });
-
-  if (contentArea) {
-    contentArea.addEventListener("input", () => updateWordCount(contentArea, wordCountEl));
-  }
-
-  document.getElementById("sourceDeleteBtn").addEventListener("click", async () => {
-    if (!confirm(`¿Eliminar "${src.title}" y todos sus excerpts?`)) return;
-    removeSource(sourceId);
-    modal.remove();
-  });
-
-  document.getElementById("sourceEditForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = new FormData(e.target);
-    const fields = {
-      title: form.get("title").trim() || src.title,
-      author: form.get("author").trim(),
-      date: form.get("date").trim(),
-    };
-    // Include content only if it was edited
-    if (contentLoaded) {
-      fields.content = form.get("content");
-    }
-    updateSource(sourceId, fields);
-    // Invalidate text cache if content was edited
-    if (contentLoaded) {
-      textCache.delete(sourceId);
-    }
-    modal.remove();
-  });
-
-  modal.querySelector('input[name="title"]').select();
-}
-
-// ── Modal helpers ────────────────────────────────────────────────────────────
+// -- Modal helpers --------------------------------------------------------
 
 function setupModalClose(modal) {
   modal.querySelectorAll(".modal-close").forEach(btn => {
@@ -404,11 +437,11 @@ function escapeAttr(s) {
   return escapeHtml(s).replace(/"/g, "&quot;");
 }
 
-// ── Búsqueda full-text en el corpus ─────────────────────────────────────────
+// -- Busqueda full-text en el corpus --------------------------------------
 
 let searchTimer = null;
 let allTextsLoaded = false;
-const corpusTexts = new Map(); // sourceId → { title, text }
+const corpusTexts = new Map();
 
 async function loadAllTexts() {
   if (allTextsLoaded) return;
@@ -416,9 +449,7 @@ async function loadAllTexts() {
   await Promise.all(sources.map(async (src) => {
     if (corpusTexts.has(src.id)) return;
     const text = await getSourceText(src.id);
-    if (text) {
-      corpusTexts.set(src.id, { title: src.title || src.filename, text });
-    }
+    if (text) corpusTexts.set(src.id, { title: src.title || src.filename, text });
   }));
   allTextsLoaded = true;
 }
@@ -426,32 +457,30 @@ async function loadAllTexts() {
 function initCorpusSearch() {
   const input = document.getElementById("corpusSearchInput");
   const resultsEl = document.getElementById("corpusSearchResults");
-  const listEl = document.getElementById("sourcesListContent");
+  const gridEl = document.getElementById("sourcesGrid");
   if (!input || !resultsEl) return;
 
   input.addEventListener("input", () => {
     clearTimeout(searchTimer);
     const query = input.value.trim();
-
     if (!query || query.length < 2) {
       resultsEl.hidden = true;
-      listEl.hidden = false;
+      if (gridEl) gridEl.hidden = false;
       return;
     }
-
-    searchTimer = setTimeout(() => runSearch(query, resultsEl, listEl), 300);
+    searchTimer = setTimeout(() => runSearch(query, resultsEl, gridEl), 300);
   });
 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       input.value = "";
       resultsEl.hidden = true;
-      listEl.hidden = false;
+      if (gridEl) gridEl.hidden = false;
     }
   });
 }
 
-async function runSearch(query, resultsEl, listEl) {
+async function runSearch(query, resultsEl, gridEl) {
   await loadAllTexts();
 
   const queryLower = query.toLowerCase();
@@ -471,12 +500,10 @@ async function runSearch(query, resultsEl, listEl) {
       const after = text.slice(pos + query.length, end);
 
       results.push({
-        sourceId,
-        title,
-        charPos: pos,
-        before: (start > 0 ? "…" : "") + before,
+        sourceId, title, charPos: pos,
+        before: (start > 0 ? "..." : "") + before,
         match,
-        after: after + (end < text.length ? "…" : ""),
+        after: after + (end < text.length ? "..." : ""),
       });
 
       pos += query.length;
@@ -484,7 +511,7 @@ async function runSearch(query, resultsEl, listEl) {
     }
   }
 
-  listEl.hidden = true;
+  if (gridEl) gridEl.hidden = true;
   resultsEl.hidden = false;
 
   if (!results.length) {
@@ -494,7 +521,7 @@ async function runSearch(query, resultsEl, listEl) {
 
   const textCount = new Set(results.map(r => r.sourceId)).size;
 
-  let html = `<div class="search-summary">"${escapeHtml(query)}" — ${results.length} resultado${results.length > 1 ? "s" : ""} en ${textCount} texto${textCount > 1 ? "s" : ""}</div>`;
+  let html = `<div class="search-summary">"${escapeHtml(query)}" -- ${results.length} resultado${results.length > 1 ? "s" : ""} en ${textCount} texto${textCount > 1 ? "s" : ""}</div>`;
 
   html += results.map(r => `
     <div class="search-result" data-source-id="${r.sourceId}" data-char-pos="${r.charPos}">
@@ -507,9 +534,7 @@ async function runSearch(query, resultsEl, listEl) {
 
   resultsEl.querySelectorAll(".search-result").forEach(el => {
     el.addEventListener("click", () => {
-      const sourceId = el.dataset.sourceId;
-      const charPos = parseInt(el.dataset.charPos);
-      navigateTo("reader", { src: sourceId, pos: charPos });
+      navigateTo("reader", { src: el.dataset.sourceId, pos: parseInt(el.dataset.charPos) });
     });
   });
 }
