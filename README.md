@@ -23,12 +23,24 @@ Versión multi-usuario de [con§tel](https://github.com/hspencer/constel) con ba
 | Auth | Netlify Identity + Google OAuth |
 | Hosting | Netlify |
 
+## Documentacion
+
+- **[Arquitectura tecnica](docs/ARCHITECTURE.md)** — modelo de datos, API, flujo de datos, stack completo
+- **[Roadmap](ROADMAP.md)** — fases de desarrollo, features pendientes, propuesta de milestones
+
 ## Desarrollo local
 
 ```bash
 npm install
 cp .env.example .env  # configurar DATABASE_URL
-netlify dev
+npx netlify dev       # arranca en http://localhost:8888
+```
+
+Si el puerto queda ocupado de una sesion anterior:
+
+```bash
+lsof -ti :3999 -ti :8888 | xargs kill  # liberar puertos
+npx netlify dev
 ```
 
 ## Licencia

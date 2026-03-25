@@ -10,6 +10,7 @@ export async function initSourcesTab() {
   renderSourcesList();
   subscribe(() => renderSourcesList());
   initCorpusSearch();
+  initAddSourceButton();
 }
 
 export function onSourcesActivated() {
@@ -22,8 +23,11 @@ function renderSourcesList() {
   if (!listEl) return;
 
   const all = Object.values(state.sources).map(src => {
-    const excerpts = getExcerptsForSource(src.id);
-    return { ...src, excerptCount: excerpts.length };
+    // excerpt_count comes from the API; fall back to local cache
+    const excerptCount = src.excerpt_count != null
+      ? Number(src.excerpt_count)
+      : getExcerptsForSource(src.id).length;
+    return { ...src, excerptCount };
   });
 
   // sort by date, then title
@@ -141,6 +145,123 @@ export async function getSourceText(sourceId) {
   return null;
 }
 
+// ── Botón Agregar fuente (admin) ─────────────────────────────────────────────
+
+function initAddSourceButton() {
+  const btn = document.getElementById("addSourceBtn");
+  if (!btn) return;
+  // In dev mode (localhost) or if user is admin, show the button
+  const isDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (isDev) btn.hidden = false;
+  // TODO: also show for admin users when auth info is available
+  btn.addEventListener("click", () => showImportModal());
+}
+
+// ── Modal de importación de fuente nueva ─────────────────────────────────────
+
+function showImportModal() {
+  const prev = document.getElementById("sourceEditModal");
+  if (prev) prev.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "sourceEditModal";
+  modal.className = "modal-overlay";
+  modal.innerHTML = `
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <h3>Agregar fuente</h3>
+        <button class="btn-icon modal-close" title="Cerrar">✕</button>
+      </div>
+      <form class="modal-form" id="sourceImportForm">
+        <div class="modal-form-row">
+          <label class="modal-field-grow">
+            <span>Título</span>
+            <input type="text" name="title" placeholder="Título del texto" required />
+          </label>
+          <label>
+            <span>Fecha</span>
+            <input type="text" name="date" placeholder="ej: 1983" style="width:100px" />
+          </label>
+        </div>
+        <label>
+          <span>Autor</span>
+          <input type="text" name="author" placeholder="Nombre del autor" />
+        </label>
+        <label>
+          <span>Contenido</span>
+          <div class="content-editor-toolbar">
+            <button type="button" class="btn-sm" id="importFileBtn">Cargar archivo .txt</button>
+            <input type="file" id="importFileInput" accept=".txt,.md,.text" hidden />
+            <span class="content-word-count" id="importWordCount"></span>
+          </div>
+          <textarea name="content" id="importContentArea" class="content-editor" placeholder="Pega o escribe el texto aquí…" required></textarea>
+        </label>
+        <div class="modal-actions">
+          <div></div>
+          <div class="modal-actions-right">
+            <button type="button" class="btn-sm modal-close">Cancelar</button>
+            <button type="submit" class="btn-primary btn-sm">Agregar al corpus</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  setupModalClose(modal);
+
+  // File upload
+  const fileBtn = document.getElementById("importFileBtn");
+  const fileInput = document.getElementById("importFileInput");
+  const contentArea = document.getElementById("importContentArea");
+  const wordCountEl = document.getElementById("importWordCount");
+
+  fileBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      contentArea.value = reader.result;
+      updateWordCount(contentArea, wordCountEl);
+      // Auto-fill title from filename if empty
+      const titleInput = modal.querySelector('input[name="title"]');
+      if (!titleInput.value) {
+        titleInput.value = file.name.replace(/\.(txt|md|text)$/i, "");
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  contentArea.addEventListener("input", () => updateWordCount(contentArea, wordCountEl));
+
+  // Submit
+  document.getElementById("sourceImportForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const title = form.get("title").trim();
+    const content = form.get("content").trim();
+    if (!title || !content) return;
+
+    const filename = title.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, "").trim() + ".txt";
+
+    try {
+      await addSource({
+        filename,
+        title,
+        author: form.get("author").trim(),
+        date: form.get("date").trim(),
+        content,
+      });
+      modal.remove();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  });
+
+  modal.querySelector('input[name="title"]').focus();
+}
+
 // ── Modal de edición de metadatos ────────────────────────────────────────────
 
 function showEditModal(sourceId) {
@@ -154,7 +275,7 @@ function showEditModal(sourceId) {
   modal.id = "sourceEditModal";
   modal.className = "modal-overlay";
   modal.innerHTML = `
-    <div class="modal-box">
+    <div class="modal-box" id="editModalBox">
       <div class="modal-header">
         <h3>Editar fuente</h3>
         <button class="btn-icon modal-close" title="Cerrar">✕</button>
@@ -173,7 +294,13 @@ function showEditModal(sourceId) {
           <input type="text" name="date" value="${escapeAttr(src.date || "")}" placeholder="ej: 1983, 2026-03-15" />
         </label>
         <hr />
-        <div class="modal-filename">${escapeHtml(src.filename)}</div>
+        <button type="button" class="btn-sm" id="editOriginalBtn">Editar original: ${escapeHtml(src.filename)}</button>
+        <div id="contentEditorContainer" hidden>
+          <div class="content-editor-toolbar">
+            <span class="content-word-count" id="editWordCount"></span>
+          </div>
+          <textarea name="content" id="editContentArea" class="content-editor" placeholder="Cargando..."></textarea>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn-sm btn-danger" id="sourceDeleteBtn">Eliminar fuente</button>
           <div class="modal-actions-right">
@@ -186,16 +313,34 @@ function showEditModal(sourceId) {
   `;
 
   document.body.appendChild(modal);
+  setupModalClose(modal);
 
-  modal.querySelectorAll(".modal-close").forEach(btn => {
-    btn.addEventListener("click", () => modal.remove());
-  });
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) modal.remove();
+  // "Editar original" — expand modal and load content
+  const editOrigBtn = document.getElementById("editOriginalBtn");
+  const contentContainer = document.getElementById("contentEditorContainer");
+  const contentArea = document.getElementById("editContentArea");
+  const wordCountEl = document.getElementById("editWordCount");
+  const modalBox = document.getElementById("editModalBox");
+  let contentLoaded = false;
+
+  editOrigBtn.addEventListener("click", async () => {
+    modalBox.classList.add("modal-box-lg");
+    contentContainer.hidden = false;
+    editOrigBtn.hidden = true;
+
+    if (!contentLoaded) {
+      contentArea.value = "Cargando…";
+      const content = await getSourceContent(sourceId);
+      contentArea.value = content || "";
+      contentLoaded = true;
+      updateWordCount(contentArea, wordCountEl);
+    }
+    contentArea.focus();
   });
 
-  const onKey = (e) => { if (e.key === "Escape") { modal.remove(); document.removeEventListener("keydown", onKey); } };
-  document.addEventListener("keydown", onKey);
+  if (contentArea) {
+    contentArea.addEventListener("input", () => updateWordCount(contentArea, wordCountEl));
+  }
 
   document.getElementById("sourceDeleteBtn").addEventListener("click", async () => {
     if (!confirm(`¿Eliminar "${src.title}" y todos sus excerpts?`)) return;
@@ -206,15 +351,47 @@ function showEditModal(sourceId) {
   document.getElementById("sourceEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
-    updateSource(sourceId, {
+    const fields = {
       title: form.get("title").trim() || src.title,
       author: form.get("author").trim(),
       date: form.get("date").trim(),
-    });
+    };
+    // Include content only if it was edited
+    if (contentLoaded) {
+      fields.content = form.get("content");
+    }
+    updateSource(sourceId, fields);
+    // Invalidate text cache if content was edited
+    if (contentLoaded) {
+      textCache.delete(sourceId);
+    }
     modal.remove();
   });
 
   modal.querySelector('input[name="title"]').select();
+}
+
+// ── Modal helpers ────────────────────────────────────────────────────────────
+
+function setupModalClose(modal) {
+  modal.querySelectorAll(".modal-close").forEach(btn => {
+    btn.addEventListener("click", () => modal.remove());
+  });
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.remove();
+  });
+  const onKey = (e) => {
+    if (e.key === "Escape") { modal.remove(); document.removeEventListener("keydown", onKey); }
+  };
+  document.addEventListener("keydown", onKey);
+}
+
+function updateWordCount(textarea, el) {
+  if (!el) return;
+  const text = textarea.value.trim();
+  if (!text) { el.textContent = ""; return; }
+  const words = text.split(/\s+/).length;
+  el.textContent = `${words.toLocaleString()} palabras`;
 }
 
 function escapeHtml(s) {

@@ -4,16 +4,32 @@ import { getDb } from "./db.js";
  * Extract and validate user from Netlify Identity JWT.
  * The JWT is automatically verified by Netlify when using Identity.
  * The `clientContext.identity` and `clientContext.user` are set by Netlify.
+ *
+ * In local dev (netlify dev), Identity JWT is not available,
+ * so we fall back to a default admin user for development.
  */
 export function getUser(context) {
   const user = context?.clientContext?.user;
-  if (!user) return null;
-  return {
-    id: user.sub,
-    email: user.email,
-    name: user.user_metadata?.full_name || user.email,
-    avatar_url: user.user_metadata?.avatar_url || null,
-  };
+  if (user) {
+    return {
+      id: user.sub,
+      email: user.email,
+      name: user.user_metadata?.full_name || user.email,
+      avatar_url: user.user_metadata?.avatar_url || null,
+    };
+  }
+
+  // Dev fallback: if no JWT and running locally, use default admin
+  if (process.env.CONTEXT !== "production" && process.env.DEV_USER_EMAIL) {
+    return {
+      id: process.env.DEV_USER_ID || "dev_local_admin",
+      email: process.env.DEV_USER_EMAIL,
+      name: process.env.DEV_USER_NAME || "Dev Admin",
+      avatar_url: null,
+    };
+  }
+
+  return null;
 }
 
 /**

@@ -46,7 +46,18 @@ export default async (req, context) => {
       return json(rows);
     }
 
-    return error("source_id o concept_id requerido");
+    // All excerpts (for initial state load)
+    const rows = await sql`
+      SELECT e.*,
+        array_agg(ce.concept_id) FILTER (WHERE ce.concept_id IS NOT NULL) AS concept_ids,
+        u.name AS created_by_name
+      FROM excerpts e
+      LEFT JOIN concept_excerpts ce ON ce.excerpt_id = e.id
+      LEFT JOIN users u ON u.id = e.created_by
+      GROUP BY e.id, u.name
+      ORDER BY e.source_id, e.start_pos
+    `;
+    return json(rows);
   }
 
   // Auth required for mutations

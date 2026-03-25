@@ -5,10 +5,13 @@
   padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 .corpus-search input {
-  width: 100%;
+  flex: 1;
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--font-size-sm);
 }
@@ -136,9 +139,9 @@
 
 /* Vista previa */
 #sourcePreviewContent {
-  font-family: var(--font-reading);
-  font-size: 1.0625rem;
-  line-height: 1.75;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
   max-width: 72ch;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -174,6 +177,23 @@
   max-height: 90vh;
   overflow-y: auto;
   padding: var(--space-lg);
+  transition: max-width 0.25s ease, max-height 0.25s ease;
+}
+
+/* Modal expandido (importar o editar texto) */
+.modal-box.modal-box-lg {
+  max-width: 80vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-box.modal-box-lg .modal-form {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--space-md);
 }
 
 .modal-header {
@@ -181,6 +201,7 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--space-md);
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -212,14 +233,87 @@
   margin: var(--space-xs) 0;
 }
 
+.modal-form-row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-end;
+}
+
+.modal-field-grow {
+  flex: 1;
+}
+
 .modal-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  padding-bottom: var(--space-sm);
+  flex-shrink: 0;
 }
 
 .modal-actions-right {
   display: flex;
   gap: var(--space-sm);
+}
+
+.modal-filename {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+
+/* ── Content editor (textarea grande) ─────────────────────────────── */
+
+.content-editor {
+  flex: 1;
+  min-height: 300px;
+  max-height: 60vh;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  resize: vertical;
+  padding: var(--space-md);
+}
+
+.modal-box-lg .content-editor {
+  min-height: 50vh;
+}
+
+.content-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.content-word-count {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* ── Botón agregar fuente ─────────────────────────────────────────── */
+
+.btn-add-source {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+}
+
+.btn-add-source:hover {
+  background: var(--accent);
+  color: white;
 }

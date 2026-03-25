@@ -1,87 +1,192 @@
-// text-highlighter.js — renderiza texto con marks de excerpts coloreados
-// Usa white-space: pre-wrap para mantener mapeo 1:1 con el texto original.
+// text-highlighter.js — renderiza Markdown como HTML con marks de excerpts
+// Pipeline: Markdown source → marked → HTML → inject marks via DOM text nodes
 
-import { state, getExcerptsForSource, removeExcerpt, removeConceptFromExcerpt } from "../state.js";
+import { state, getExcerptsForSource, removeExcerpt } from "../state.js";
+import { marked } from "../lib/marked.esm.js";
 
-// Guardamos referencia al texto original para calcular offsets
-let _sourceText = "";
+// Configure marked for literary texts
+marked.setOptions({
+  breaks: true,      // line breaks → <br>
+  gfm: true,
+  headerIds: false,
+});
+
+// Plain text extracted from rendered HTML (for offset calculations)
+let _plainText = "";
 
 // Tooltip singleton
 let _tooltip = null;
 let _tooltipTimeout = null;
 
 /**
- * Retorna el texto original del source actualmente renderizado.
+ * Returns the plain text of the currently rendered source.
+ * Offsets are calculated against this string.
  */
 export function getRenderedSourceText() {
-  return _sourceText;
+  return _plainText;
 }
 
 /**
- * Renderiza el texto de un source con highlights de excerpts.
+ * Render a source with Markdown → HTML + excerpt highlights.
  * @param {HTMLElement} container
- * @param {string} text - texto completo del source
+ * @param {string} source - raw content (Markdown or plain text)
  * @param {string} sourceId
  * @param {Function} onExcerptClick - (excerptId) => void
  */
-export function renderHighlightedText(container, text, sourceId, onExcerptClick) {
-  _sourceText = text;
-  const excerpts = getExcerptsForSource(sourceId);
+export function renderHighlightedText(container, source, sourceId, onExcerptClick) {
+  // 1. Render Markdown → HTML
+  const html = marked.parse(source);
+  container.innerHTML = html;
+  container.classList.add("rendered-markdown");
 
-  if (!excerpts.length) {
-    container.textContent = text;
-    return;
-  }
+  // 2. Extract plain text from rendered HTML (this is our offset reference)
+  _plainText = extractPlainText(container);
 
-  // ordenar excerpts por posición de inicio, sin solapamientos
-  const sorted = excerpts
+  // 3. Get and sort excerpts
+  const excerpts = getExcerptsForSource(sourceId)
     .filter(e => typeof e.start === "number" && typeof e.end === "number")
     .sort((a, b) => a.start - b.start);
 
-  // construir HTML insertando <mark> en las posiciones correctas del texto original
-  const parts = [];
-  let cursor = 0;
+  if (!excerpts.length) return;
 
-  for (const exc of sorted) {
-    // evitar solapamientos
-    const start = Math.max(exc.start, cursor);
-    if (start >= exc.end) continue;
+  // 4. Build text-node map: array of { node, startOffset, endOffset }
+  const textMap = buildTextNodeMap(container);
 
-    // texto antes del excerpt
-    if (start > cursor) {
-      parts.push(escapeHtml(text.slice(cursor, start)));
-    }
-
+  // 5. Insert marks by wrapping text node ranges
+  for (const exc of excerpts) {
     const color = getExcerptColor(exc);
     const conceptLabels = exc.conceptIds
       .map(cid => state.concepts[cid]?.label)
       .filter(Boolean)
       .join(", ");
 
-    parts.push(
-      `<mark data-excerpt="${exc.id}" data-concepts="${escapeAttr(conceptLabels)}" style="--mark-color: ${color}; border-bottom-color: ${color}; background: ${color}20">`
-    );
-    parts.push(escapeHtml(text.slice(start, exc.end)));
-    parts.push("</mark>");
-
-    cursor = exc.end;
+    wrapRange(textMap, exc.start, exc.end, exc.id, color, conceptLabels);
   }
 
-  // texto restante
-  if (cursor < text.length) {
-    parts.push(escapeHtml(text.slice(cursor)));
+  // 6. Attach event listeners to marks
+  attachMarkListeners(container, onExcerptClick);
+}
+
+// ── Text node mapping ─────────────────────────────────────────────────────
+
+/**
+ * Extract plain text from a container, matching how we count offsets.
+ * Adds newlines for block elements to keep text positions meaningful.
+ */
+function extractPlainText(container) {
+  let text = "";
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    text += walker.currentNode.textContent;
   }
+  return text;
+}
 
-  container.innerHTML = parts.join("");
+/**
+ * Build a map of text nodes with their character offset ranges.
+ * Returns [{ node, start, end }] where start/end are char offsets in plain text.
+ */
+function buildTextNodeMap(container) {
+  const map = [];
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let offset = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const len = node.textContent.length;
+    map.push({ node, start: offset, end: offset + len });
+    offset += len;
+  }
+  return map;
+}
 
-  // event listeners en marks
+/**
+ * Wrap a character range [start, end) in <mark> elements across text nodes.
+ * Handles ranges that span multiple text nodes by splitting and wrapping each.
+ */
+function wrapRange(textMap, start, end, excerptId, color, conceptLabels) {
+  // Find all text nodes that overlap with [start, end)
+  for (let i = 0; i < textMap.length; i++) {
+    const entry = textMap[i];
+    if (entry.end <= start || entry.start >= end) continue;
+
+    const node = entry.node;
+    const nodeStart = entry.start;
+    const localStart = Math.max(0, start - nodeStart);
+    const localEnd = Math.min(node.textContent.length, end - nodeStart);
+
+    if (localStart >= localEnd) continue;
+
+    // Split the text node if needed
+    // Before | Marked | After
+    const parent = node.parentNode;
+    if (!parent) continue;
+
+    // Don't nest marks inside marks
+    if (parent.closest && parent.closest("mark[data-excerpt]")) continue;
+
+    const fullText = node.textContent;
+
+    // Create fragments
+    const before = fullText.slice(0, localStart);
+    const marked_text = fullText.slice(localStart, localEnd);
+    const after = fullText.slice(localEnd);
+
+    // Build new nodes
+    const frag = document.createDocumentFragment();
+
+    if (before) {
+      const beforeNode = document.createTextNode(before);
+      frag.appendChild(beforeNode);
+    }
+
+    const mark = document.createElement("mark");
+    mark.dataset.excerpt = excerptId;
+    mark.dataset.concepts = conceptLabels;
+    mark.style.setProperty("--mark-color", color);
+    mark.style.borderBottomColor = color;
+    mark.style.background = color + "20";
+    mark.textContent = marked_text;
+    frag.appendChild(mark);
+
+    if (after) {
+      const afterNode = document.createTextNode(after);
+      frag.appendChild(afterNode);
+    }
+
+    parent.replaceChild(frag, node);
+
+    // Update the textMap for subsequent excerpts
+    // Remove old entry and insert new ones
+    const newEntries = [];
+    let pos = nodeStart;
+    if (before) {
+      // find the before text node (first child we inserted)
+      newEntries.push({ node: mark.previousSibling || frag.firstChild, start: pos, end: pos + before.length });
+      pos += before.length;
+    }
+    // the mark's text node
+    newEntries.push({ node: mark.firstChild, start: pos, end: pos + marked_text.length });
+    pos += marked_text.length;
+    if (after) {
+      newEntries.push({ node: mark.nextSibling, start: pos, end: pos + after.length });
+    }
+
+    textMap.splice(i, 1, ...newEntries);
+    // Adjust loop index since we inserted entries
+    i += newEntries.length - 1;
+  }
+}
+
+// ── Mark event listeners ──────────────────────────────────────────────────
+
+function attachMarkListeners(container, onExcerptClick) {
   container.querySelectorAll("mark[data-excerpt]").forEach(mark => {
     mark.addEventListener("click", (e) => {
       e.stopPropagation();
       onExcerptClick(mark.dataset.excerpt);
     });
 
-    mark.addEventListener("mouseenter", (e) => {
+    mark.addEventListener("mouseenter", () => {
       clearTimeout(_tooltipTimeout);
       showExcerptTooltip(mark, onExcerptClick);
     });
@@ -92,9 +197,8 @@ export function renderHighlightedText(container, text, sourceId, onExcerptClick)
   });
 }
 
-/**
- * Muestra tooltip contextual sobre un excerpt.
- */
+// ── Tooltip ───────────────────────────────────────────────────────────────
+
 function showExcerptTooltip(mark, onExcerptClick) {
   const excId = mark.dataset.excerpt;
   const exc = state.excerpts[excId];
@@ -126,10 +230,10 @@ function showExcerptTooltip(mark, onExcerptClick) {
   _tooltip.innerHTML = `
     <div class="tooltip-concepts">${conceptChips}</div>
     <div class="tooltip-actions">
-      <button class="tooltip-btn tooltip-delete" data-action="delete" title="Eliminar sección">${trashSvg}</button>
+      <button class="tooltip-btn tooltip-delete" data-action="delete" title="Eliminar seccion">${trashSvg}</button>
     </div>
     <div class="tooltip-confirm" style="display:none">
-      <span class="tooltip-confirm-msg">¿Eliminar sección?</span>
+      <span class="tooltip-confirm-msg">Eliminar seccion?</span>
       <button class="tooltip-confirm-yes">Eliminar</button>
       <button class="tooltip-confirm-no">No</button>
     </div>
@@ -140,44 +244,35 @@ function showExcerptTooltip(mark, onExcerptClick) {
   _tooltip.style.display = "flex";
   _tooltip.classList.remove("confirming");
 
-  // medir tooltip
   const tooltipRect = _tooltip.getBoundingClientRect();
   let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
   let top = rect.top - tooltipRect.height - 6;
 
-  // si no cabe arriba, ponerlo abajo
-  if (top < 4) {
-    top = rect.bottom + 6;
-  }
-  // mantener dentro de la ventana
+  if (top < 4) top = rect.bottom + 6;
   left = Math.max(4, Math.min(window.innerWidth - tooltipRect.width - 4, left));
 
   _tooltip.style.left = left + "px";
   _tooltip.style.top = top + "px";
 
-  // acciones: mostrar confirmación
   _tooltip.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
     e.stopPropagation();
     _tooltip.classList.add("confirming");
     _tooltip.querySelector(".tooltip-confirm").style.display = "flex";
   });
 
-  // confirmar eliminación
   _tooltip.querySelector(".tooltip-confirm-yes")?.addEventListener("click", (e) => {
     e.stopPropagation();
     removeExcerpt(excId);
     hideExcerptTooltip();
   });
 
-  // cancelar
   _tooltip.querySelector(".tooltip-confirm-no")?.addEventListener("click", (e) => {
     e.stopPropagation();
     _tooltip.classList.remove("confirming");
     _tooltip.querySelector(".tooltip-confirm").style.display = "none";
   });
 
-  // click en un chip de concepto → abrir detalle en sidebar
-  _tooltip.querySelectorAll(".tooltip-concept").forEach((chip, i) => {
+  _tooltip.querySelectorAll(".tooltip-concept").forEach((chip) => {
     chip.addEventListener("click", (e) => {
       e.stopPropagation();
       onExcerptClick(excId);
@@ -192,9 +287,8 @@ function hideExcerptTooltip() {
   }
 }
 
-/**
- * Obtiene el color dominante de un excerpt basado en sus concepts/themes.
- */
+// ── Helpers ───────────────────────────────────────────────────────────────
+
 function getExcerptColor(excerpt) {
   for (const cid of excerpt.conceptIds) {
     const concept = state.concepts[cid];
@@ -209,12 +303,8 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function escapeAttr(s) {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 /**
- * Scroll al excerpt indicado en el contenedor, con feedback visual.
+ * Scroll to an excerpt mark with visual feedback.
  */
 export function scrollToExcerpt(container, excerptId) {
   const mark = container.querySelector(`mark[data-excerpt="${excerptId}"]`);

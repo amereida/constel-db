@@ -29,6 +29,7 @@ function normalizeConcept(raw) {
 // ── Estado (in-memory cache) ─────────────────────────────────────────────────
 
 export const state = {
+  currentUser: null, // { id, email, name, role } — from DB after auth.sync
   sources: {},   // id → { id, filename, title, author, date, word_count, ... }
   excerpts: {},  // id → { id, sourceId, text, start, end, conceptIds[], createdBy, ... }
   concepts: {},  // id → { id, label, themeId, createdBy, excerptCount, ... }
@@ -59,10 +60,11 @@ export function notify() {
 export async function loadState() {
   try {
     // Load all data in parallel
-    const [sourceList, conceptList, themeList] = await Promise.all([
+    const [sourceList, conceptList, themeList, excerptList] = await Promise.all([
       api.sources.list(),
       api.concepts.list(),
       api.themes.list(),
+      api.excerpts.list(),
     ]);
 
     // Index by ID
@@ -75,8 +77,9 @@ export async function loadState() {
     state.themes = {};
     for (const t of themeList) state.themes[t.id] = t;
 
-    // Excerpts and notes are loaded on-demand per source/theme
     state.excerpts = {};
+    for (const exc of excerptList) state.excerpts[exc.id] = normalizeExcerpt(exc);
+
     state.notes = {};
 
   } catch (e) {
@@ -96,6 +99,23 @@ export async function loadExcerptsForSource(sourceId) {
     notify();
   } catch (e) {
     console.error("Error loading excerpts:", e);
+  }
+}
+
+/**
+ * Load excerpts for a specific concept (called from themes tab).
+ */
+export async function loadExcerptsForConcept(conceptId) {
+  try {
+    const rows = await api.excerpts.byConcept(conceptId);
+    for (const exc of rows) {
+      state.excerpts[exc.id] = normalizeExcerpt(exc);
+    }
+    notify();
+    return rows.map(r => normalizeExcerpt(r));
+  } catch (e) {
+    console.error("Error loading excerpts for concept:", e);
+    return [];
   }
 }
 
@@ -174,6 +194,25 @@ export async function getSourceContent(id) {
 // ── CRUD: Excerpts ──────────────────────────────────────────────────────────
 
 export async function addExcerpt({ sourceId, text, start, end, conceptIds }) {
+  // Optimistic: show immediately with temp ID
+  const tempId = `_tmp_${Date.now()}`;
+  const optimistic = {
+    id: tempId,
+    sourceId,
+    source_id: sourceId,
+    text,
+    start,
+    end,
+    start_pos: start,
+    end_pos: end,
+    conceptIds: conceptIds || [],
+    concept_ids: conceptIds || [],
+    createdBy: null,
+    _optimistic: true,
+  };
+  state.excerpts[tempId] = optimistic;
+  notify();
+
   try {
     const exc = await api.excerpts.create({
       source_id: sourceId,
@@ -182,10 +221,15 @@ export async function addExcerpt({ sourceId, text, start, end, conceptIds }) {
       end_pos: end,
       concept_ids: conceptIds || [],
     });
+    // Replace temp with real
+    delete state.excerpts[tempId];
     state.excerpts[exc.id] = normalizeExcerpt(exc);
     notify();
     return exc.id;
   } catch (e) {
+    // Rollback optimistic
+    delete state.excerpts[tempId];
+    notify();
     console.error("Error creating excerpt:", e);
     throw e;
   }
@@ -415,6 +459,33 @@ export async function removeNote(id) {
 
 export function getNotesForTheme(themeId) {
   return Object.values(state.notes).filter(n => n.theme_id === themeId);
+}
+
+export function getNotesForConcept(conceptId) {
+  return Object.values(state.notes).filter(n => n.concept_id === conceptId);
+}
+
+export async function loadNotesForConcept(conceptId) {
+  try {
+    const rows = await api.notes.byConcept(conceptId);
+    for (const n of rows) state.notes[n.id] = n;
+    return rows;
+  } catch (e) {
+    console.error("Error loading notes for concept:", e);
+    return [];
+  }
+}
+
+export async function addConceptNote(conceptId, text) {
+  try {
+    const note = await api.notes.create({ concept_id: conceptId, text });
+    state.notes[note.id] = note;
+    notify();
+    return note.id;
+  } catch (e) {
+    console.error("Error creating concept note:", e);
+    throw e;
+  }
 }
 
 // ── Graph query ─────────────────────────────────────────────────────────────

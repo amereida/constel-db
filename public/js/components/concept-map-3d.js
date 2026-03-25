@@ -26,7 +26,7 @@ export function cleanupGraph3D() {
  * @param {Function} opts.onClickConcept
  * @returns {Object|null} controller
  */
-export function renderConceptMap3D(container, opts = {}) {
+export async function renderConceptMap3D(container, opts = {}) {
   const ForceGraph3D = window.ForceGraph3D;
   const THREE = window.THREE;
 
@@ -35,7 +35,7 @@ export function renderConceptMap3D(container, opts = {}) {
     return null;
   }
 
-  const { nodes, links } = computeConceptGraph(opts.sourceId || null);
+  const { nodes, links } = await computeConceptGraph(opts.sourceId || null);
   if (!nodes.length) {
     container.innerHTML = `<p class="placeholder">Marca pasajes con conceptos para ver el mapa</p>`;
     return null;
@@ -57,11 +57,8 @@ export function renderConceptMap3D(container, opts = {}) {
   const mutedColor = cs.getPropertyValue("--muted").trim() || "#e3e3e967";
 
   // ── Font size scale ──
-  const maxExc = Math.max(1, ...nodes.map(n => n.excerptCount));
-  const maxSrc = Math.max(1, ...nodes.map(n => n.sourceCount));
-
   function fontSize(d) {
-    const score = (d.excerptCount / maxExc) * 0.6 + (d.sourceCount / maxSrc) * 0.4;
+    const score = d.score != null ? d.score : 0;
     return Math.round(11 + score * 20);
   }
 
@@ -133,8 +130,8 @@ export function renderConceptMap3D(container, opts = {}) {
     const hPad = 36 * dpr;
     const padding = 8 * dpr;
 
-    const totalWidth = maxLineW + hPad + padding * 2;
-    const totalHeight = textBlockH + padding * 2;
+    const totalWidth = Math.max(4, Math.ceil(maxLineW + hPad + padding * 2));
+    const totalHeight = Math.max(4, Math.ceil(textBlockH + padding * 2));
     canvas.width = totalWidth;
     canvas.height = totalHeight;
 

@@ -379,6 +379,71 @@
   margin-top: var(--space-md);
 }
 
+/* Notas de concepto */
+.concept-notes-section {
+  margin-bottom: var(--space-md);
+}
+
+.concept-note {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface-alt);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-xs);
+}
+
+.concept-note-text {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.concept-note-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: var(--space-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.concept-note-textarea {
+  width: 100%;
+  font-family: var(--font);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+  margin-bottom: var(--space-xs);
+}
+
+.concept-note-add {
+  margin-top: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.concept-note-add textarea {
+  font-family: var(--font);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.concept-note-add .btn-sm {
+  align-self: flex-end;
+}
+
 /* Lista de excerpts en el detalle */
 .excerpt-list {
   display: flex;

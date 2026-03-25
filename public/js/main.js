@@ -19,22 +19,31 @@ async function boot() {
   // 1. Init Netlify Identity
   await initIdentity();
 
-  // 2. Check auth — require login
+  // 2. Check auth — require login (skip on localhost for dev)
   const user = getCurrentUser();
-  if (!user) {
+  const isDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+  if (!user && !isDev) {
     showLoginScreen();
     return;
   }
 
-  // 3. Sync user to DB
-  try {
-    await auth.sync();
-  } catch (err) {
-    console.warn("Auth sync failed:", err);
+  // 3. Sync user to DB (skip if no Identity user in dev)
+  if (user) {
+    try {
+      const dbUser = await auth.sync();
+      if (dbUser) state.currentUser = dbUser;
+    } catch (err) {
+      console.warn("Auth sync failed:", err);
+    }
   }
 
   // 4. Show user info in header
-  showUserInfo(user);
+  if (user) {
+    showUserInfo(user);
+  } else if (isDev) {
+    showStatus("⚡ Modo desarrollo — sin autenticación");
+  }
 
   // 5. Load state from API
   await loadState();

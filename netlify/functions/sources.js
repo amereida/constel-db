@@ -22,8 +22,9 @@ export default async (req, context) => {
     }
     // List without content (lighter)
     const sources = await sql`
-      SELECT id, filename, title, author, date, word_count, uploaded_by, created_at, updated_at
-      FROM sources ORDER BY date, title
+      SELECT s.id, s.filename, s.title, s.author, s.date, s.word_count, s.uploaded_by, s.created_at, s.updated_at,
+             (SELECT count(*) FROM excerpts e WHERE e.source_id = s.id) AS excerpt_count
+      FROM sources s ORDER BY s.date, s.title
     `;
     return json(sources);
   }

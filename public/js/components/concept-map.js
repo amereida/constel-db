@@ -13,14 +13,14 @@ import { state, computeConceptGraph, getThemeColor } from "../state.js";
  * @param {Function} opts.onClickConcept
  * @returns {Object|null} controller
  */
-export function renderConceptMap(container, opts = {}) {
+export async function renderConceptMap(container, opts = {}) {
   const d3 = window.d3;
   if (!d3) {
     container.innerHTML = `<p class="placeholder">D3.js no está cargado</p>`;
     return null;
   }
 
-  const { nodes, links } = computeConceptGraph(opts.sourceId || null);
+  const { nodes, links } = await computeConceptGraph(opts.sourceId || null);
   if (!nodes.length) {
     container.innerHTML = `<p class="placeholder">Marca pasajes con conceptos para ver el mapa</p>`;
     return null;
@@ -33,11 +33,8 @@ export function renderConceptMap(container, opts = {}) {
   const allLinks = [...links]; // keep full set for threshold filtering
 
   // ── Font size scale (no bold, only size varies) ──
-  const maxExc = Math.max(1, ...nodes.map(n => n.excerptCount));
-  const maxSrc = Math.max(1, ...nodes.map(n => n.sourceCount));
-
   function fontSize(d) {
-    const score = (d.excerptCount / maxExc) * 0.6 + (d.sourceCount / maxSrc) * 0.4;
+    const score = d.score != null ? d.score : 0;
     return Math.round(11 + score * 20); // 11px to 31px
   }
 

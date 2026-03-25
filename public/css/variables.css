@@ -1,3 +1,26 @@
+/* IBM Plex Mono — self-hosted */
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono/ibm-plex-mono-400i.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono/ibm-plex-mono-700.woff2") format("woff2");
+}
+
 /* Variables de diseño — light / dark */
 :root {
   /* Colores base */
@@ -20,7 +43,7 @@
   /* Tipografía */
   --font:  "Gabarito", system-ui, -apple-system, sans-serif;
   --font-reading: "Sorts Mill Goudy", "Georgia", serif;
-  --mono:  "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  --mono:  "IBM Plex Mono", "SF Mono", "Cascadia Code", monospace;
   --font-size-sm:  0.8125rem;
   --font-size-base: 0.9375rem;
   --font-size-lg:  1.125rem;

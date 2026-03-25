@@ -17,6 +17,9 @@
   <link rel="stylesheet" href="css/tab-themes.css">
 </head>
 <body>
+  <!-- Progress bar (top-of-page, GitHub-style) -->
+  <div class="progress-bar" id="progressBar"></div>
+
   <!-- Shell principal -->
   <header class="shell-header">
     <h1 class="logo">con<span class="section-sign">§</span>tel <span class="version" id="appVersion">v</span></h1>
@@ -72,6 +75,7 @@
         <div class="split-left" id="sourcesList">
           <div class="corpus-search">
             <input type="text" id="corpusSearchInput" placeholder="Buscar en todos los textos..." />
+            <button class="btn-icon btn-add-source" id="addSourceBtn" title="Agregar fuente" hidden>+</button>
           </div>
           <div class="panel-content" id="sourcesListContent"></div>
           <div class="search-results" id="corpusSearchResults" hidden></div>

@@ -80,11 +80,13 @@ CREATE TABLE concept_excerpts (
 -- ─── Notes (theme annotations) ──────────────────────────────────────
 CREATE TABLE notes (
   id          TEXT PRIMARY KEY DEFAULT 'note_' || substr(md5(random()::text), 1, 12),
-  theme_id    TEXT NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+  theme_id    TEXT REFERENCES themes(id) ON DELETE CASCADE,
+  concept_id  TEXT REFERENCES concepts(id) ON DELETE CASCADE,
   text        TEXT NOT NULL DEFAULT '',
   created_by  TEXT NOT NULL REFERENCES users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (theme_id IS NOT NULL OR concept_id IS NOT NULL)
 );
 
 -- ─── Activity log (audit trail) ─────────────────────────────────────

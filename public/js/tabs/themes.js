@@ -4,9 +4,10 @@ import {
   state, subscribe,
   addTheme, removeTheme, renameTheme,
   moveConcept,
-  addNote, updateNote, getNotesForTheme,
+  addNote, updateNote, removeNote, getNotesForTheme,
+  addConceptNote, getNotesForConcept, loadNotesForConcept,
   getConceptsForTheme, getUngroupedConcepts,
-  getExcerptsForConcept, getThemeColor,
+  getExcerptsForConcept, loadExcerptsForConcept, getThemeColor,
   getSelectedConcept, setSelectedConcept,
 } from "../state.js";
 import { navigateTo } from "../router.js";
@@ -44,11 +45,11 @@ export function initThemesTab() {
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
 
-export function onThemesActivated() {
+export async function onThemesActivated() {
   // Verificar si hay un concepto seleccionado globalmente
   const selectedConceptId = getSelectedConcept();
 
-  renderMap();
+  await renderMap();
 
   // Si hay un concepto seleccionado, aplicar selección en el mapa
   if (selectedConceptId && state.concepts[selectedConceptId]) {
@@ -78,7 +79,7 @@ function destroyCurrentMap() {
   cleanupGraph3D();
 }
 
-function renderMap() {
+async function renderMap() {
   const container = document.getElementById("mapContainer");
   if (!container) return;
 
@@ -101,9 +102,9 @@ function renderMap() {
   };
 
   if (mapMode === "3d") {
-    mapCtrl = renderConceptMap3D(container, mapOpts);
+    mapCtrl = await renderConceptMap3D(container, mapOpts);
   } else {
-    mapCtrl = renderConceptMap(container, mapOpts);
+    mapCtrl = await renderConceptMap(container, mapOpts);
   }
 }
 
@@ -321,17 +322,28 @@ function renderThemeOverview(container, titleEl) {
   });
 }
 
-function renderConceptDetail(container, titleEl, conceptId) {
+async function renderConceptDetail(container, titleEl, conceptId) {
   const concept = state.concepts[conceptId];
   if (!concept) { renderThemeOverview(container, titleEl); return; }
 
   titleEl.textContent = concept.label;
 
-  const excerpts = getExcerptsForConcept(conceptId);
+  // Load excerpts and notes in parallel
+  let excerpts = getExcerptsForConcept(conceptId);
+  let notes = getNotesForConcept(conceptId);
+  if (!excerpts.length || !notes.length) {
+    container.innerHTML = `<p class="placeholder">Cargando...</p>`;
+    const [excResult, noteResult] = await Promise.all([
+      excerpts.length ? excerpts : loadExcerptsForConcept(conceptId),
+      loadNotesForConcept(conceptId),
+    ]);
+    if (!excerpts.length) excerpts = excResult;
+    notes = getNotesForConcept(conceptId);
+  }
   const themes = Object.values(state.themes);
 
   let html = `
-    <button class="btn-sm" style="margin-bottom: var(--space-md)" id="backToOverviewTop">← Todos los temas</button>
+    <button class="btn-sm" style="margin-bottom: var(--space-md)" id="backToOverviewTop">\u2190 Todos los temas</button>
     <div style="margin-bottom: var(--space-md)">
       <label style="font-size: var(--font-size-sm); color: var(--muted)">Tema:</label>
       <select id="conceptThemeSelect" style="margin-left: var(--space-sm); padding: var(--space-xs)">
@@ -343,8 +355,26 @@ function renderConceptDetail(container, titleEl, conceptId) {
         `).join("")}
       </select>
     </div>
-    <div style="margin-bottom: var(--space-md)">
-      <label style="font-size: var(--font-size-sm); color: var(--muted)">${excerpts.length} excerpts (§)</label>
+
+    <div class="concept-notes-section">
+      ${notes.map(n => `
+        <div class="concept-note" data-note-id="${n.id}">
+          <div class="concept-note-text">${escapeHtml(n.text)}</div>
+          <div class="concept-note-meta">
+            ${escapeHtml(n.created_by_name || "")}
+            ${n.created_by === state.currentUser?.id ? `<button class="btn-link concept-note-edit" data-note-id="${n.id}">editar</button>` : ""}
+            ${n.created_by === state.currentUser?.id || state.currentUser?.role === "admin" ? `<button class="btn-link btn-link-danger concept-note-delete" data-note-id="${n.id}">eliminar</button>` : ""}
+          </div>
+        </div>
+      `).join("")}
+      <div class="concept-note-add">
+        <textarea id="newConceptNote" rows="2" placeholder="Agregar una nota sobre este concepto..."></textarea>
+        <button class="btn-sm" id="addConceptNoteBtn">Agregar nota</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom: var(--space-sm)">
+      <label style="font-size: var(--font-size-sm); color: var(--muted)">${excerpts.length} secciones</label>
     </div>
     <div class="excerpt-list">
       ${excerpts.map(exc => {
@@ -357,18 +387,58 @@ function renderConceptDetail(container, titleEl, conceptId) {
         `;
       }).join("")}
     </div>
-    <button class="btn-sm" style="margin-top: var(--space-md)" id="backToOverview">← Todos los temas</button>
+    <button class="btn-sm" style="margin-top: var(--space-md)" id="backToOverview">\u2190 Todos los temas</button>
   `;
 
   container.innerHTML = html;
 
-  // cambiar tema del concept
+  // Add note
+  container.querySelector("#addConceptNoteBtn")?.addEventListener("click", async () => {
+    const textarea = container.querySelector("#newConceptNote");
+    const text = textarea?.value?.trim();
+    if (!text) return;
+    await addConceptNote(conceptId, text);
+    renderConceptDetail(container, titleEl, conceptId);
+  });
+
+  // Edit own note (inline)
+  container.querySelectorAll(".concept-note-edit").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const noteId = btn.dataset.noteId;
+      const noteDiv = btn.closest(".concept-note");
+      const textDiv = noteDiv.querySelector(".concept-note-text");
+      const currentText = textDiv.textContent;
+      textDiv.innerHTML = `
+        <textarea class="concept-note-textarea">${escapeHtml(currentText)}</textarea>
+        <button class="btn-sm concept-note-save" data-note-id="${noteId}">Guardar</button>
+      `;
+      const saveBtn = textDiv.querySelector(".concept-note-save");
+      saveBtn.addEventListener("click", async () => {
+        const newText = textDiv.querySelector("textarea").value.trim();
+        if (newText) {
+          await updateNote(noteId, newText);
+          renderConceptDetail(container, titleEl, conceptId);
+        }
+      });
+    });
+  });
+
+  // Delete note
+  container.querySelectorAll(".concept-note-delete").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const noteId = btn.dataset.noteId;
+      await removeNote(noteId);
+      renderConceptDetail(container, titleEl, conceptId);
+    });
+  });
+
+  // Change theme
   container.querySelector("#conceptThemeSelect")?.addEventListener("change", (e) => {
     moveConcept(conceptId, e.target.value || null);
     renderMap();
   });
 
-  // click en excerpt → ir al reader
+  // Click excerpt -> reader
   container.querySelectorAll(".excerpt-item").forEach(item => {
     item.addEventListener("click", () => {
       navigateTo("reader", { src: item.dataset.source, exc: item.dataset.excerpt });

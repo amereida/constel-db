@@ -419,29 +419,38 @@ function computeExcerptHash() {
 async function handleCreateExcerpt({ text, start, end, conceptLabel }) {
   if (!currentSourceId || !conceptLabel) return;
 
-  let concept = findConceptByLabel(conceptLabel);
-  let conceptId;
+  // Immediately show toast (instant feedback)
+  showToast(`§ [${conceptLabel}] …`);
 
-  if (concept) {
-    conceptId = concept.id;
-  } else {
-    conceptId = await addConcept(conceptLabel);
+  try {
+    // Step 1: Get or create concept
+    let concept = findConceptByLabel(conceptLabel);
+    let conceptId;
+    if (concept) {
+      conceptId = concept.id;
+    } else {
+      conceptId = await addConcept(conceptLabel);
+    }
+
+    // Step 2: Create excerpt (optimistic — mark shows instantly via addExcerpt)
+    const excerptId = await addExcerpt({
+      sourceId: currentSourceId,
+      text,
+      start,
+      end,
+      conceptIds: [conceptId],
+    });
+
+    showToast(`§ [${conceptLabel}]`);
+
+    requestAnimationFrame(() => {
+      scrollToExcerpt(document.getElementById("readerTextContent"), excerptId);
+      openConceptDetail(conceptId);
+    });
+  } catch (err) {
+    showToast(`Error: ${err.message}`);
+    console.error("handleCreateExcerpt:", err);
   }
-
-  const excerptId = await addExcerpt({
-    sourceId: currentSourceId,
-    text,
-    start,
-    end,
-    conceptIds: [conceptId],
-  });
-
-  showToast(`§ marcado como [${conceptLabel}]`);
-
-  setTimeout(() => {
-    scrollToExcerpt(document.getElementById("readerTextContent"), excerptId);
-    openConceptDetail(conceptId);
-  }, 150);
 }
 
 // ── Add section mode ──────────────────────────────────────────────────

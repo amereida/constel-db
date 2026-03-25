@@ -2,6 +2,32 @@
 
 let _currentUser = null;
 let _netlifyIdentity = null;
+let _activeRequests = 0;
+
+// ── Progress bar ─────────────────────────────────────────────────────────
+
+function progressStart() {
+  _activeRequests++;
+  const bar = document.getElementById("progressBar");
+  if (bar && _activeRequests === 1) {
+    bar.classList.remove("done");
+    // Force reflow to restart animation
+    bar.offsetHeight;
+    bar.classList.add("active");
+  }
+}
+
+function progressEnd() {
+  _activeRequests = Math.max(0, _activeRequests - 1);
+  if (_activeRequests === 0) {
+    const bar = document.getElementById("progressBar");
+    if (bar) {
+      bar.classList.remove("active");
+      bar.classList.add("done");
+      setTimeout(() => bar.classList.remove("done"), 600);
+    }
+  }
+}
 
 /**
  * Initialize the API layer. Call after Netlify Identity widget is loaded.
@@ -44,12 +70,19 @@ async function request(method, path, body) {
   }
   if (body !== undefined) opts.body = JSON.stringify(body);
 
-  const res = await fetch(`/api${path}`, opts);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `${res.status} ${res.statusText}`);
+  // Show progress for all requests
+  progressStart();
+
+  try {
+    const res = await fetch(`/api${path}`, opts);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  } finally {
+    progressEnd();
   }
-  return res.json();
 }
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -74,6 +107,7 @@ export const sources = {
 // ── Excerpts ─────────────────────────────────────────────────────────────────
 
 export const excerpts = {
+  list: () => request("GET", "/excerpts"),
   bySource: (sourceId) => request("GET", `/excerpts?source_id=${sourceId}`),
   byConcept: (conceptId) => request("GET", `/excerpts?concept_id=${conceptId}`),
   create: (data) => request("POST", "/excerpts", data),
@@ -111,6 +145,7 @@ export const themes = {
 
 export const notes = {
   byTheme: (themeId) => request("GET", `/notes?theme_id=${themeId}`),
+  byConcept: (conceptId) => request("GET", `/notes?concept_id=${conceptId}`),
   create: (data) => request("POST", "/notes", data),
   update: (data) => request("PUT", "/notes", data),
   delete: (id) => request("DELETE", `/notes?id=${id}`),

@@ -1,5 +1,40 @@
 /* Componentes compartidos */
 
+/* ── Progress bar (GitHub-style) ─────────────────────────────────────── */
+.progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  width: 0;
+  transition: opacity 0.2s ease;
+}
+
+.progress-bar.active {
+  opacity: 1;
+  animation: progress-grow 8s cubic-bezier(0.1, 0.45, 0.1, 0.85) forwards;
+}
+
+.progress-bar.done {
+  width: 100% !important;
+  opacity: 0;
+  animation: none;
+  transition: width 0.15s ease, opacity 0.4s ease 0.15s;
+}
+
+@keyframes progress-grow {
+  0%   { width: 0; }
+  10%  { width: 25%; }
+  30%  { width: 50%; }
+  60%  { width: 70%; }
+  80%  { width: 85%; }
+  100% { width: 95%; }
+}
+
 /* ── Login screen ────────────────────────────────────────────────────── */
 .login-screen {
   position: fixed;
@@ -169,6 +204,24 @@
 
 .btn-danger:hover {
   background: var(--danger-light);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  opacity: 0.8;
+}
+
+.btn-link-danger {
+  color: var(--danger);
 }
 
 /* ── Inputs ────────────────────────────────────────────────────────────── */
