@@ -95,14 +95,12 @@ async function boot() {
 
 function initIdentity() {
   return new Promise((resolve) => {
-    if (window.netlifyIdentity) {
-      const identity = window.netlifyIdentity;
+    function setup(identity) {
       identity.init();
       initApi(identity);
 
-      identity.on("login", async (user) => {
+      identity.on("login", async () => {
         identity.close();
-        // Reload to boot with authenticated user
         location.reload();
       });
 
@@ -111,15 +109,20 @@ function initIdentity() {
       });
 
       resolve();
+    }
+
+    if (window.netlifyIdentity) {
+      setup(window.netlifyIdentity);
     } else {
-      // Wait for Identity widget to load
-      document.addEventListener("DOMContentLoaded", () => {
+      // Widget script hasn't loaded yet — poll until it does
+      const check = setInterval(() => {
         if (window.netlifyIdentity) {
-          window.netlifyIdentity.init();
-          initApi(window.netlifyIdentity);
+          clearInterval(check);
+          setup(window.netlifyIdentity);
         }
-        resolve();
-      });
+      }, 100);
+      // Give up after 10s
+      setTimeout(() => { clearInterval(check); resolve(); }, 10000);
     }
   });
 }
