@@ -65,9 +65,17 @@ export async function ensureUser(user) {
 
   // Check if a user with this email exists under a different ID (e.g. from seed data).
   // If so, migrate ownership to the Identity ID.
-  const [existing] = await sql`SELECT id FROM users WHERE email = ${user.email}`;
+  const [existing] = await sql`SELECT id, role FROM users WHERE email = ${user.email}`;
   if (existing && existing.id !== user.id) {
-    // Update all foreign keys pointing to the old ID
+    // 1. Insert the new user first (so FK references are valid)
+    await sql`
+      INSERT INTO users (id, email, name, avatar_url, role, last_login_at)
+      VALUES (${user.id}, ${user.email}, ${user.name}, ${user.avatar_url}, ${existing.role || 'user'}, now())
+      ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email, name = EXCLUDED.name,
+        avatar_url = EXCLUDED.avatar_url, last_login_at = now()
+    `;
+    // 2. Migrate all FK references from old ID to new ID
     await sql`UPDATE sources SET uploaded_by = ${user.id} WHERE uploaded_by = ${existing.id}`;
     await sql`UPDATE excerpts SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
     await sql`UPDATE concepts SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
@@ -76,8 +84,11 @@ export async function ensureUser(user) {
     await sql`UPDATE concept_excerpts SET linked_by = ${user.id} WHERE linked_by = ${existing.id}`;
     await sql`UPDATE theme_concepts SET added_by = ${user.id} WHERE added_by = ${existing.id}`;
     await sql`UPDATE activity_log SET user_id = ${user.id} WHERE user_id = ${existing.id}`;
-    // Replace the old user record
+    // 3. Delete the old user record
     await sql`DELETE FROM users WHERE id = ${existing.id}`;
+    // Return the migrated user
+    const [row] = await sql`SELECT * FROM users WHERE id = ${user.id}`;
+    return row;
   }
 
   const [row] = await sql`
