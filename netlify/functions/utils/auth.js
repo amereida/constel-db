@@ -67,15 +67,14 @@ export async function ensureUser(user) {
   // If so, migrate ownership to the Identity ID.
   const [existing] = await sql`SELECT id, role FROM users WHERE email = ${user.email}`;
   if (existing && existing.id !== user.id) {
-    // 1. Insert the new user first (so FK references are valid)
+    // Migration: user logged in with Identity but DB has a seed/old ID.
+    // Strategy: insert new user with temp email, migrate FKs, delete old, fix email.
+    const tempEmail = `migrate_${user.id}@temp.local`;
     await sql`
       INSERT INTO users (id, email, name, avatar_url, role, last_login_at)
-      VALUES (${user.id}, ${user.email}, ${user.name}, ${user.avatar_url}, ${existing.role || 'user'}, now())
-      ON CONFLICT (id) DO UPDATE SET
-        email = EXCLUDED.email, name = EXCLUDED.name,
-        avatar_url = EXCLUDED.avatar_url, last_login_at = now()
+      VALUES (${user.id}, ${tempEmail}, ${user.name}, ${user.avatar_url}, ${existing.role || 'user'}, now())
+      ON CONFLICT (id) DO NOTHING
     `;
-    // 2. Migrate all FK references from old ID to new ID
     await sql`UPDATE sources SET uploaded_by = ${user.id} WHERE uploaded_by = ${existing.id}`;
     await sql`UPDATE excerpts SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
     await sql`UPDATE concepts SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
@@ -84,9 +83,8 @@ export async function ensureUser(user) {
     await sql`UPDATE concept_excerpts SET linked_by = ${user.id} WHERE linked_by = ${existing.id}`;
     await sql`UPDATE theme_concepts SET added_by = ${user.id} WHERE added_by = ${existing.id}`;
     await sql`UPDATE activity_log SET user_id = ${user.id} WHERE user_id = ${existing.id}`;
-    // 3. Delete the old user record
     await sql`DELETE FROM users WHERE id = ${existing.id}`;
-    // Return the migrated user
+    await sql`UPDATE users SET email = ${user.email}, name = ${user.name}, avatar_url = ${user.avatar_url} WHERE id = ${user.id}`;
     const [row] = await sql`SELECT * FROM users WHERE id = ${user.id}`;
     return row;
   }
