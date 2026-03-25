@@ -72,6 +72,16 @@ export default async (req, context) => {
       return error("source_id requerido");
     }
 
+    // Prevent duplicate excerpts (same source + same text)
+    if (text) {
+      const [existing] = await sql`
+        SELECT id FROM excerpts WHERE source_id = ${source_id} AND text = ${text} LIMIT 1
+      `;
+      if (existing) {
+        return error("Ya existe una seccion con ese texto en esta fuente", 409);
+      }
+    }
+
     const [excerpt] = await sql`
       INSERT INTO excerpts (source_id, text, start_pos, end_pos, created_by)
       VALUES (${source_id}, ${text || ""}, ${start_pos ?? -1}, ${end_pos ?? -1}, ${user.id})

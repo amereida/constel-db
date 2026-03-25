@@ -101,10 +101,15 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
 
   createBtn.addEventListener("click", () => {
     if (!currentSelection) return;
+    if (createBtn.disabled) return;
     const label = input.value.trim();
     if (!label) { input.focus(); return; }
 
     const selectedText = currentSelection.text;
+
+    // Prevent double-click
+    createBtn.disabled = true;
+    createBtn.textContent = "Guardando...";
 
     // Keep the highlight visible with a saving animation
     if (tempHighlight) {
@@ -121,6 +126,9 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
     onCreateExcerpt({
       text: selectedText,
       conceptLabel: label,
+    }).finally(() => {
+      createBtn.disabled = false;
+      createBtn.textContent = "Marcar \u00a7";
     });
   });
 
