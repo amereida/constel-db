@@ -1,14 +1,13 @@
 // sources.js — Tab 1: gestión del corpus
 
-import { api } from "../api.js";
-import { state, addSource, updateSource, getExcerptsForSource, subscribe } from "../state.js";
+import { state, addSource, updateSource, removeSource, getExcerptsForSource, getSourceContent, subscribe } from "../state.js";
 import { navigateTo } from "../router.js";
 
-// cache de textos cargados (filename → text)
+// cache de textos cargados (sourceId → text)
 const textCache = new Map();
 
 export async function initSourcesTab() {
-  await renderSourcesList();
+  renderSourcesList();
   subscribe(() => renderSourcesList());
   initCorpusSearch();
 }
@@ -17,44 +16,23 @@ export function onSourcesActivated() {
   renderSourcesList();
 }
 
-async function renderSourcesList() {
+function renderSourcesList() {
   const listEl = document.getElementById("sourcesListContent");
   const searchInput = document.getElementById("corpusSearchInput");
   if (!listEl) return;
 
-  // obtener archivos del corpus
-  let corpusFiles = [];
-  try {
-    const res = await api.listCorpus();
-    corpusFiles = res.files || [];
-  } catch {}
-
-  // merge: sources del estado + archivos aún no importados
-  const imported = new Set(Object.values(state.sources).map(s => s.filename));
-  const all = [];
-
-  // primero los ya importados
-  for (const src of Object.values(state.sources)) {
+  const all = Object.values(state.sources).map(src => {
     const excerpts = getExcerptsForSource(src.id);
-    all.push({ ...src, excerptCount: excerpts.length, imported: true });
-  }
+    return { ...src, excerptCount: excerpts.length };
+  });
 
-  // luego los pendientes
-  for (const f of corpusFiles) {
-    if (!imported.has(f.filename)) {
-      all.push({
-        filename: f.filename,
-        title: f.filename.replace(/\.(txt|md)$/, ""),
-        size: f.size,
-        imported: false,
-      });
-    }
-  }
+  // sort by date, then title
+  all.sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.title || "").localeCompare(b.title || ""));
 
   if (searchInput) searchInput.placeholder = `Buscar en los ${all.length} textos`;
 
   if (!all.length) {
-    listEl.innerHTML = `<p class="placeholder">Coloca archivos .txt o .md en la carpeta corpus/</p>`;
+    listEl.innerHTML = `<p class="placeholder">No hay fuentes en el corpus</p>`;
     return;
   }
 
@@ -62,13 +40,13 @@ async function renderSourcesList() {
 
   // event listeners
   listEl.querySelectorAll(".source-card").forEach(card => {
-    const fn = card.dataset.filename;
     const sid = card.dataset.sourceId;
 
-    card.addEventListener("click", () => handleSourceClick(fn, sid));
-    card.addEventListener("mouseenter", () => previewSource(fn));
+    card.addEventListener("click", () => {
+      if (sid) navigateTo("reader", { src: sid });
+    });
+    card.addEventListener("mouseenter", () => previewSource(sid));
 
-    // edit button (only for imported sources)
     const editBtn = card.querySelector(".source-edit-btn");
     if (editBtn) {
       editBtn.addEventListener("click", (e) => {
@@ -80,29 +58,22 @@ async function renderSourcesList() {
 }
 
 function renderSourceCard(src) {
-  const pct = src.wordCount > 0 ? Math.round((countMarkedChars(src.id) / (src.wordCount * 5)) * 100) : 0;
-  // Build metadata line: code · role · date
-  const codeLine = src.code || src.participant || "";
-  const roleLine = src.role || "";
-  const metaParts = [codeLine, roleLine, src.date].filter(Boolean);
+  const pct = src.word_count > 0 ? Math.round((countMarkedChars(src.id) / (src.word_count * 5)) * 100) : 0;
+  const metaParts = [src.author, src.date].filter(Boolean);
   const metaLine = metaParts.join(" · ");
 
   return `
-    <div class="card source-card" data-filename="${src.filename}" data-source-id="${src.id || ""}">
+    <div class="card source-card" data-source-id="${src.id}">
       <div class="source-card-header">
         <h3>${escapeHtml(src.title || src.filename)}</h3>
         <button class="btn-icon source-edit-btn" title="Editar metadatos"><img src="icons/icons_edit.svg" class="btn-svg-icon" alt="" /></button>
       </div>
       ${metaLine ? `<div class="source-author">${escapeHtml(metaLine)}</div>` : ""}
       <div class="source-meta">
-        ${src.imported
-          ? `<span class="stat">${src.excerptCount || 0} §</span>
-             <span class="stat">${src.wordCount || "?"} palabras</span>`
-          : `<span class="stat" style="color:var(--accent)">Por importar</span>
-             <span class="stat">${src.size ? Math.round(src.size / 1024) + " KB" : ""}</span>`
-        }
+        <span class="stat">${src.excerptCount || 0} §</span>
+        <span class="stat">${src.word_count || "?"} palabras</span>
       </div>
-      ${src.imported && src.wordCount > 0 ? `
+      ${src.word_count > 0 ? `
         <div class="source-progress">
           <div class="source-progress-bar" style="width: ${Math.min(pct, 100)}%"></div>
         </div>
@@ -111,61 +82,24 @@ function renderSourceCard(src) {
   `;
 }
 
-async function handleSourceClick(filename, sourceId) {
-  if (sourceId) {
-    // ya importado → ir al reader
-    navigateTo("reader", { src: sourceId });
-    return;
-  }
-
-  // importar el texto (con frontmatter)
-  try {
-    const res = await api.readSource(filename);
-    const words = res.text.split(/\s+/).length;
-    const meta = res.meta || {};
-    // título: code si existe (T2, D2), sino title del frontmatter, sino filename
-    const displayTitle = meta.code
-      ? `${meta.code}${meta.participant ? " — " + meta.participant : ""}`
-      : meta.title || filename.replace(/\.(txt|md)$/, "");
-    const id = addSource({
-      filename,
-      title: displayTitle,
-      author: meta.author || "",
-      date: meta.date || "",
-      wordCount: words,
-    });
-    // guardar campos extra del frontmatter
-    const extra = {};
-    if (meta.code) extra.code = meta.code;
-    if (meta.participant) extra.participant = meta.participant;
-    if (meta.role) extra.role = meta.role;
-    if (meta.field) extra.field = meta.field;
-    if (meta.type) extra.type = meta.type;
-    if (meta.notes) extra.notes = meta.notes;
-    if (Object.keys(extra).length) updateSource(id, extra);
-
-    textCache.set(filename, res.text);
-    navigateTo("reader", { src: id });
-  } catch (e) {
-    console.error("Error importando:", e);
-  }
-}
-
-async function previewSource(filename) {
+async function previewSource(sourceId) {
   const previewEl = document.getElementById("sourcePreviewContent");
-  if (!previewEl) return;
+  if (!previewEl || !sourceId) return;
 
-  // buscar en cache
-  if (textCache.has(filename)) {
-    showPreview(previewEl, textCache.get(filename));
+  if (textCache.has(sourceId)) {
+    showPreview(previewEl, textCache.get(sourceId));
     return;
   }
 
   previewEl.innerHTML = `<p class="placeholder">Cargando...</p>`;
   try {
-    const res = await api.readSource(filename);
-    textCache.set(filename, res.text);
-    showPreview(previewEl, res.text);
+    const content = await getSourceContent(sourceId);
+    if (content) {
+      textCache.set(sourceId, content);
+      showPreview(previewEl, content);
+    } else {
+      previewEl.innerHTML = `<p class="placeholder">Sin contenido</p>`;
+    }
   } catch {
     previewEl.innerHTML = `<p class="placeholder">No se pudo cargar el texto</p>`;
   }
@@ -185,37 +119,25 @@ function countMarkedChars(sourceId) {
   const excerpts = getExcerptsForSource(sourceId);
   const chars = new Set();
   for (const e of excerpts) {
-    if (typeof e.start === "number" && typeof e.end === "number") {
-      for (let i = e.start; i < e.end; i++) chars.add(i);
+    const start = e.start_pos ?? e.start;
+    const end = e.end_pos ?? e.end;
+    if (typeof start === "number" && typeof end === "number") {
+      for (let i = start; i < end; i++) chars.add(i);
     }
   }
   return chars.size;
 }
 
 /**
- * Obtiene el texto de un source (desde cache o servidor).
+ * Obtiene el texto de un source (desde cache o API).
  */
 export async function getSourceText(sourceId) {
-  const src = state.sources[sourceId];
-  if (!src) return null;
-  if (textCache.has(src.filename)) return textCache.get(src.filename);
-
-  // intentar desde la API (servidor o fetch estático)
-  try {
-    const res = await api.readSource(src.filename);
-    textCache.set(src.filename, res.text);
-    return res.text;
-  } catch {}
-
-  // fallback: corpus guardado en localStorage (desde import ZIP)
-  try {
-    const cached = JSON.parse(localStorage.getItem("constel-corpus") || "{}");
-    if (cached[src.filename]) {
-      textCache.set(src.filename, cached[src.filename]);
-      return cached[src.filename];
-    }
-  } catch {}
-
+  if (textCache.has(sourceId)) return textCache.get(sourceId);
+  const content = await getSourceContent(sourceId);
+  if (content) {
+    textCache.set(sourceId, content);
+    return content;
+  }
   return null;
 }
 
@@ -225,7 +147,6 @@ function showEditModal(sourceId) {
   const src = state.sources[sourceId];
   if (!src) return;
 
-  // remover modal previo si existe
   const prev = document.getElementById("sourceEditModal");
   if (prev) prev.remove();
 
@@ -251,18 +172,6 @@ function showEditModal(sourceId) {
           <span>Fecha</span>
           <input type="text" name="date" value="${escapeAttr(src.date || "")}" placeholder="ej: 1983, 2026-03-15" />
         </label>
-        <label>
-          <span>Participante</span>
-          <input type="text" name="participant" value="${escapeAttr(src.participant || "")}" placeholder="ej: P-07 (para entrevistas)" />
-        </label>
-        <label>
-          <span>Rol</span>
-          <input type="text" name="role" value="${escapeAttr(src.role || "")}" placeholder="ej: diseñador senior" />
-        </label>
-        <label>
-          <span>Notas</span>
-          <textarea name="notes" rows="2" placeholder="Notas sobre esta fuente...">${escapeHtml(src.notes || "")}</textarea>
-        </label>
         <hr />
         <div class="modal-filename">${escapeHtml(src.filename)}</div>
         <div class="modal-actions">
@@ -278,7 +187,6 @@ function showEditModal(sourceId) {
 
   document.body.appendChild(modal);
 
-  // cerrar con click en overlay o botón ✕
   modal.querySelectorAll(".modal-close").forEach(btn => {
     btn.addEventListener("click", () => modal.remove());
   });
@@ -286,36 +194,26 @@ function showEditModal(sourceId) {
     if (e.target === modal) modal.remove();
   });
 
-  // escape key
   const onKey = (e) => { if (e.key === "Escape") { modal.remove(); document.removeEventListener("keydown", onKey); } };
   document.addEventListener("keydown", onKey);
 
-  // eliminar fuente
   document.getElementById("sourceDeleteBtn").addEventListener("click", async () => {
     if (!confirm(`¿Eliminar "${src.title}" y todos sus excerpts?`)) return;
-    const { removeSource } = await import("../state.js");
     removeSource(sourceId);
     modal.remove();
   });
 
-  // guardar
   document.getElementById("sourceEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
-
     updateSource(sourceId, {
       title: form.get("title").trim() || src.title,
       author: form.get("author").trim(),
       date: form.get("date").trim(),
-      participant: form.get("participant").trim(),
-      role: form.get("role").trim(),
-      notes: form.get("notes").trim(),
     });
-
     modal.remove();
   });
 
-  // focus en título
   modal.querySelector('input[name="title"]').select();
 }
 
@@ -365,7 +263,6 @@ function initCorpusSearch() {
     searchTimer = setTimeout(() => runSearch(query, resultsEl, listEl), 300);
   });
 
-  // Escape cierra búsqueda
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       input.value = "";
@@ -380,7 +277,7 @@ async function runSearch(query, resultsEl, listEl) {
 
   const queryLower = query.toLowerCase();
   const results = [];
-  const CONTEXT = 60; // chars de contexto a cada lado
+  const CONTEXT = 60;
 
   for (const [sourceId, { title, text }] of corpusTexts) {
     const textLower = text.toLowerCase();
@@ -408,7 +305,6 @@ async function runSearch(query, resultsEl, listEl) {
     }
   }
 
-  // mostrar resultados
   listEl.hidden = true;
   resultsEl.hidden = false;
 
@@ -430,7 +326,6 @@ async function runSearch(query, resultsEl, listEl) {
 
   resultsEl.innerHTML = html;
 
-  // click → navegar al reader
   resultsEl.querySelectorAll(".search-result").forEach(el => {
     el.addEventListener("click", () => {
       const sourceId = el.dataset.sourceId;

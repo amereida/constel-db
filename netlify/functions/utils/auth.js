@@ -21,6 +21,24 @@ export function getUser(context) {
  */
 export async function ensureUser(user) {
   const sql = getDb();
+
+  // Check if a user with this email exists under a different ID (e.g. from seed data).
+  // If so, migrate ownership to the Identity ID.
+  const [existing] = await sql`SELECT id FROM users WHERE email = ${user.email}`;
+  if (existing && existing.id !== user.id) {
+    // Update all foreign keys pointing to the old ID
+    await sql`UPDATE sources SET uploaded_by = ${user.id} WHERE uploaded_by = ${existing.id}`;
+    await sql`UPDATE excerpts SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
+    await sql`UPDATE concepts SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
+    await sql`UPDATE themes SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
+    await sql`UPDATE notes SET created_by = ${user.id} WHERE created_by = ${existing.id}`;
+    await sql`UPDATE concept_excerpts SET linked_by = ${user.id} WHERE linked_by = ${existing.id}`;
+    await sql`UPDATE theme_concepts SET added_by = ${user.id} WHERE added_by = ${existing.id}`;
+    await sql`UPDATE activity_log SET user_id = ${user.id} WHERE user_id = ${existing.id}`;
+    // Replace the old user record
+    await sql`DELETE FROM users WHERE id = ${existing.id}`;
+  }
+
   const [row] = await sql`
     INSERT INTO users (id, email, name, avatar_url, last_login_at)
     VALUES (${user.id}, ${user.email}, ${user.name}, ${user.avatar_url}, now())
