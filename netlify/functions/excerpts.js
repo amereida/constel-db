@@ -8,13 +8,10 @@ import { requireAuth, isAdmin, json, error, logActivity } from "./utils/auth.js"
  * DELETE /api/excerpts?id=X                 — delete (own or admin)
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
-  if (err) return err;
-
   const sql = getDb();
   const url = new URL(req.url);
 
-  // GET
+  // GET — public (no auth required)
   if (req.method === "GET") {
     const sourceId = url.searchParams.get("source_id");
     const conceptId = url.searchParams.get("concept_id");
@@ -51,6 +48,10 @@ export default async (req, context) => {
 
     return error("source_id o concept_id requerido");
   }
+
+  // Auth required for mutations
+  const { user, err } = requireAuth(context);
+  if (err) return err;
 
   // POST — create excerpt
   if (req.method === "POST") {

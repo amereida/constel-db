@@ -11,12 +11,44 @@ import { requireAuth, isAdmin, json, error, logActivity } from "./utils/auth.js"
  * POST   /api/concepts/unlink-excerpt     — remove excerpt from concept (own link or admin)
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
-  if (err) return err;
-
   const sql = getDb();
   const url = new URL(req.url);
   const path = url.pathname.replace("/api/concepts", "");
+
+  // GET — public (no auth required)
+  if (req.method === "GET") {
+    const id = url.searchParams.get("id");
+    if (id) {
+      const [concept] = await sql`
+        SELECT c.*,
+          tc.theme_id,
+          u.name AS created_by_name,
+          (SELECT count(*) FROM concept_excerpts WHERE concept_id = c.id) AS excerpt_count
+        FROM concepts c
+        LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
+        LEFT JOIN users u ON u.id = c.created_by
+        WHERE c.id = ${id}
+      `;
+      if (!concept) return error("Concepto no encontrado", 404);
+      return json(concept);
+    }
+
+    const concepts = await sql`
+      SELECT c.id, c.label, c.created_by,
+        tc.theme_id,
+        u.name AS created_by_name,
+        (SELECT count(*) FROM concept_excerpts WHERE concept_id = c.id) AS excerpt_count
+      FROM concepts c
+      LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
+      LEFT JOIN users u ON u.id = c.created_by
+      ORDER BY c.label
+    `;
+    return json(concepts);
+  }
+
+  // Auth required for mutations
+  const { user, err } = requireAuth(context);
+  if (err) return err;
 
   // POST /api/concepts/link-excerpt
   if (req.method === "POST" && path === "/link-excerpt") {
@@ -52,38 +84,6 @@ export default async (req, context) => {
     `;
     await logActivity(user.id, "unlink_excerpt", "concept", concept_id, { excerpt_id });
     return json({ ok: true });
-  }
-
-  // GET
-  if (req.method === "GET") {
-    const id = url.searchParams.get("id");
-    if (id) {
-      const [concept] = await sql`
-        SELECT c.*,
-          tc.theme_id,
-          u.name AS created_by_name,
-          (SELECT count(*) FROM concept_excerpts WHERE concept_id = c.id) AS excerpt_count
-        FROM concepts c
-        LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
-        LEFT JOIN users u ON u.id = c.created_by
-        WHERE c.id = ${id}
-      `;
-      if (!concept) return error("Concepto no encontrado", 404);
-      return json(concept);
-    }
-
-    // List all with excerpt count and theme
-    const concepts = await sql`
-      SELECT c.id, c.label, c.created_by,
-        tc.theme_id,
-        u.name AS created_by_name,
-        (SELECT count(*) FROM concept_excerpts WHERE concept_id = c.id) AS excerpt_count
-      FROM concepts c
-      LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
-      LEFT JOIN users u ON u.id = c.created_by
-      ORDER BY c.label
-    `;
-    return json(concepts);
   }
 
   // POST — create

@@ -8,13 +8,10 @@ import { requireAuth, isAdmin, json, error, logActivity } from "./utils/auth.js"
  * DELETE /api/notes?id=X                  — delete (own or admin)
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
-  if (err) return err;
-
   const sql = getDb();
   const url = new URL(req.url);
 
-  // GET
+  // GET — public (no auth required)
   if (req.method === "GET") {
     const themeId = url.searchParams.get("theme_id");
     if (!themeId) return error("theme_id requerido");
@@ -27,6 +24,10 @@ export default async (req, context) => {
     `;
     return json(notes);
   }
+
+  // Auth required for mutations
+  const { user, err } = requireAuth(context);
+  if (err) return err;
 
   // POST
   if (req.method === "POST") {

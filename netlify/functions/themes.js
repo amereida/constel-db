@@ -10,12 +10,26 @@ import { requireAuth, isAdmin, json, error, logActivity } from "./utils/auth.js"
  * POST   /api/themes/remove-concept       — remove concept from theme (own link or admin)
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
-  if (err) return err;
-
   const sql = getDb();
   const url = new URL(req.url);
   const path = url.pathname.replace("/api/themes", "");
+
+  // GET — public (no auth required)
+  if (req.method === "GET") {
+    const themes = await sql`
+      SELECT t.*,
+        u.name AS created_by_name,
+        (SELECT count(*) FROM theme_concepts WHERE theme_id = t.id) AS concept_count
+      FROM themes t
+      LEFT JOIN users u ON u.id = t.created_by
+      ORDER BY t.label
+    `;
+    return json(themes);
+  }
+
+  // Auth required for mutations
+  const { user, err } = requireAuth(context);
+  if (err) return err;
 
   // POST /api/themes/add-concept
   if (req.method === "POST" && path === "/add-concept") {
@@ -50,19 +64,6 @@ export default async (req, context) => {
     `;
     await logActivity(user.id, "remove_concept_from_theme", "theme", theme_id, { concept_id });
     return json({ ok: true });
-  }
-
-  // GET
-  if (req.method === "GET") {
-    const themes = await sql`
-      SELECT t.*,
-        u.name AS created_by_name,
-        (SELECT count(*) FROM theme_concepts WHERE theme_id = t.id) AS concept_count
-      FROM themes t
-      LEFT JOIN users u ON u.id = t.created_by
-      ORDER BY t.label
-    `;
-    return json(themes);
   }
 
   // POST — create

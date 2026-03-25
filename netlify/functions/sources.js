@@ -9,14 +9,11 @@ import { requireAuth, isAdmin, json, error, logActivity } from "./utils/auth.js"
  * DELETE /api/sources?id=X  — delete source (admin only)
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
-  if (err) return err;
-
   const sql = getDb();
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
 
-  // GET
+  // GET — public (no auth required)
   if (req.method === "GET") {
     if (id) {
       const [source] = await sql`SELECT * FROM sources WHERE id = ${id}`;
@@ -30,6 +27,10 @@ export default async (req, context) => {
     `;
     return json(sources);
   }
+
+  // Auth required for mutations
+  const { user, err } = requireAuth(context);
+  if (err) return err;
 
   // Admin-only from here
   if (!(await isAdmin(user.id))) {

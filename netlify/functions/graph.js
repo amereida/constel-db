@@ -11,9 +11,6 @@ import { requireAuth, json, error } from "./utils/auth.js";
  * Compatible with both 2D and 3D concept maps.
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
-  if (err) return err;
-
   const sql = getDb();
   const url = new URL(req.url);
   const userId = url.searchParams.get("user_id");
