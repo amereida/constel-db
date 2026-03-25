@@ -1,25 +1,50 @@
 import { getDb } from "./db.js";
 
 /**
- * Extract and validate user from Netlify Identity JWT.
- * The JWT is automatically verified by Netlify when using Identity.
- * The `clientContext.identity` and `clientContext.user` are set by Netlify.
+ * Extract user from request.
  *
- * In local dev (netlify dev), Identity JWT is not available,
- * so we fall back to a default admin user for development.
+ * Netlify Functions v2 does NOT auto-populate clientContext.user.
+ * We decode the JWT from the Authorization header manually.
+ * The JWT is signed by Netlify Identity — in production, Netlify
+ * validates it at the edge before the function runs.
+ *
+ * In local dev, falls back to DEV_USER_* env vars.
  */
-export function getUser(context) {
-  const user = context?.clientContext?.user;
-  if (user) {
+export function getUser(context, req) {
+  // Try clientContext first (v1 compat / netlify dev)
+  const ctxUser = context?.clientContext?.user;
+  if (ctxUser) {
     return {
-      id: user.sub,
-      email: user.email,
-      name: user.user_metadata?.full_name || user.email,
-      avatar_url: user.user_metadata?.avatar_url || null,
+      id: ctxUser.sub,
+      email: ctxUser.email,
+      name: ctxUser.user_metadata?.full_name || ctxUser.email,
+      avatar_url: ctxUser.user_metadata?.avatar_url || null,
     };
   }
 
-  // Dev fallback: if no JWT and running locally, use default admin
+  // v2: decode JWT from Authorization header
+  if (req) {
+    const authHeader = req.headers.get?.("authorization") || req.headers?.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      try {
+        // Decode payload (base64url) — we trust Netlify edge to validate signature
+        const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+        if (payload.sub && payload.email) {
+          return {
+            id: payload.sub,
+            email: payload.email,
+            name: payload.user_metadata?.full_name || payload.email,
+            avatar_url: payload.user_metadata?.avatar_url || null,
+          };
+        }
+      } catch (e) {
+        console.error("JWT decode error:", e.message);
+      }
+    }
+  }
+
+  // Dev fallback
   if (process.env.CONTEXT !== "production" && process.env.DEV_USER_EMAIL) {
     return {
       id: process.env.DEV_USER_ID || "dev_local_admin",
@@ -97,8 +122,8 @@ export function error(message, status = 400) {
 /**
  * Require authenticated user or return 401.
  */
-export function requireAuth(context) {
-  const user = getUser(context);
+export function requireAuth(context, req) {
+  const user = getUser(context, req);
   if (!user) return { user: null, err: error("No autenticado", 401) };
   return { user, err: null };
 }

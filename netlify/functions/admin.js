@@ -9,7 +9,7 @@ import { requireAuth, isAdmin, json, error } from "./utils/auth.js";
  * GET  /api/admin/stats              — corpus stats
  */
 export default async (req, context) => {
-  const { user, err } = requireAuth(context);
+  const { user, err } = requireAuth(context, req);
   if (err) return err;
 
   if (!(await isAdmin(user.id))) {

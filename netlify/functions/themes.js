@@ -28,7 +28,7 @@ export default async (req, context) => {
   }
 
   // Auth required for mutations
-  const { user, err } = requireAuth(context);
+  const { user, err } = requireAuth(context, req);
   if (err) return err;
 
   // POST /api/themes/add-concept

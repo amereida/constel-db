@@ -36,21 +36,14 @@
 }
 
 /* ── Login screen ────────────────────────────────────────────────────── */
-/* Login button in header (unauthenticated users) */
+/* Login icon button in header (unauthenticated users) */
 .btn-login {
-  background: var(--accent);
-  color: white;
-  border: none;
-  padding: var(--space-xs) var(--space-md);
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
+  opacity: 0.6;
   transition: opacity var(--duration) var(--ease);
 }
 
 .btn-login:hover {
-  opacity: 0.85;
+  opacity: 1;
 }
 
 /* ── User info (header) ──────────────────────────────────────────────── */

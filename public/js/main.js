@@ -169,7 +169,9 @@ function showLoginButton() {
   const container = document.getElementById("userInfo");
   if (!container) return;
   container.innerHTML = `
-    <button class="btn-sm btn-login" id="loginBtn">Entrar</button>
+    <button class="btn-icon btn-login" id="loginBtn" title="Entrar">
+      <img src="icons/icons_login.svg" class="btn-svg-icon" alt="Entrar" />
+    </button>
   `;
   container.style.display = "flex";
 

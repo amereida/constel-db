@@ -5,7 +5,7 @@ import { getUser, ensureUser, json, error } from "./utils/auth.js";
  * GET  /api/auth — get current user info
  */
 export default async (req, context) => {
-  const user = getUser(context);
+  const user = getUser(context, req);
   if (!user) return error("No autenticado", 401);
 
   if (req.method === "POST") {
