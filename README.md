@@ -4,6 +4,8 @@
 
 Versión multi-usuario de [con§tel](https://github.com/hspencer/constel) con backend, base de datos y autenticación.
 
+[![Netlify Status](https://api.netlify.com/api/v1/badges/c507d3c6-f8b7-4e39-b818-19f2f3f5aafc/deploy-status)](https://app.netlify.com/projects/constel-amereida/deploys)
+
 ## Características
 
 - Corpus compartido gestionado por administradores

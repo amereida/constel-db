@@ -1,233 +1,331 @@
-# con§tel-db — Arquitectura técnica
+# con§tel-db -- Arquitectura
 
-## Visión general
+## Vision general
 
-con§tel-db es una herramienta colaborativa de análisis temático. Los usuarios leen textos de un corpus compartido, seleccionan fragmentos (secciones), les asignan conceptos, y agrupan conceptos en temas. El resultado es un mapa de conceptos interconectados que emerge del corpus.
+con§tel-db es una herramienta colaborativa de analisis tematico de corpus textuales. Un grupo de lectores trabaja sobre un corpus compartido: seleccionan fragmentos, les asignan conceptos, y agrupan conceptos en temas. El resultado es un mapa de relaciones conceptuales que emerge de la lectura colectiva.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Frontend (Vanilla JS, ES6 modules, sin build step)         │
-│                                                             │
-│  public/js/                                                 │
-│    main.js          → boot, auth flow, Identity widget      │
-│    api.js           → fetch wrapper con JWT + progress bar  │
-│    state.js         → cache in-memory + pub/sub             │
-│    router.js        → hash-based routing (#tab/params)      │
-│    tabs/                                                    │
-│      sources.js     → lista de fuentes, import, edit        │
-│      reader.js      → lector con selección y etiquetado     │
-│      themes.js      → agrupación de conceptos en temas      │
-│    components/                                              │
-│      text-highlighter.js  → renderiza <mark> sobre texto    │
-│      popup.js             → popup de creación de excerpt    │
-│      autocomplete.js      → sugerencia de conceptos         │
-│      concept-gloss.js     → sidebar de conceptos por texto  │
-│      concept-map.js       → grafo 2D (d3-force)            │
-│      concept-map-3d.js    → grafo 3D (3d-force-graph)      │
-│      minimap.js           → miniatura de posición           │
-│      split-view.js        → paneles redimensionables        │
-└──────────────┬──────────────────────────────────────────────┘
-               │ fetch /api/*
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Netlify Functions (Node.js serverless)                     │
-│                                                             │
-│  netlify/functions/                                         │
-│    auth.js          → POST /api/auth (user upsert)          │
-│    sources.js       → CRUD /api/sources                     │
-│    excerpts.js      → CRUD /api/excerpts                    │
-│    concepts.js      → CRUD + link/unlink excerpts           │
-│    themes.js        → CRUD + add/remove concepts            │
-│    notes.js         → CRUD por tema                         │
-│    graph.js         → GET /api/graph (concept map data)     │
-│    admin.js         → usuarios, actividad, stats            │
-│    utils/                                                   │
-│      db.js          → postgres connection pool              │
-│      auth.js        → JWT extraction, user upsert, perms   │
-└──────────────┬──────────────────────────────────────────────┘
-               │ postgres (porsager/postgres)
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  PostgreSQL (Neon, serverless)                              │
-│                                                             │
-│  Tablas: users, sources, excerpts, concepts, themes,        │
-│          concept_excerpts, theme_concepts, notes,            │
-│          activity_log                                        │
-└─────────────────────────────────────────────────────────────┘
+## Stack
+
+```mermaid
+graph TB
+    subgraph Cliente["Navegador (Vanilla JS, sin build)"]
+        UI["tabs: sources / reader / themes"]
+        State["state.js — cache + pub/sub"]
+        API["api.js — fetch + JWT"]
+    end
+
+    subgraph Netlify["Netlify (CDN + Functions)"]
+        Static["CDN — archivos estaticos"]
+        Functions["Functions — Node.js serverless"]
+        Identity["Identity — Google OAuth + JWT"]
+    end
+
+    subgraph DB["Neon (Postgres serverless)"]
+        Tables["users, sources, excerpts,\nconcepts, themes, notes,\nconcept_excerpts, theme_concepts,\nactivity_log"]
+    end
+
+    UI --> State
+    State --> API
+    API -- "fetch /api/*" --> Functions
+    API -- "JWT token" --> Identity
+    Functions -- "postgres (porsager)" --> Tables
+    Identity -- "user sub + email" --> Functions
+    Cliente -- "HTML/CSS/JS" --> Static
 ```
 
 ## Modelo de datos
 
-### Diagrama ER
+```mermaid
+erDiagram
+    users {
+        text id PK "Identity sub"
+        text email UK
+        text name
+        text avatar_url
+        text role "user | admin"
+    }
 
+    sources {
+        text id PK "src_ + md5"
+        text filename
+        text title
+        text author
+        text date
+        text content "texto completo"
+        int word_count
+        text uploaded_by FK
+    }
+
+    excerpts {
+        text id PK "exc_ + md5"
+        text source_id FK
+        text text "fragmento seleccionado"
+        int start_pos
+        int end_pos
+        text created_by FK
+    }
+
+    concepts {
+        text id PK "con_ + md5"
+        text label UK
+        text created_by FK
+    }
+
+    themes {
+        text id PK "thm_ + md5"
+        text label UK
+        text color
+        text created_by FK
+    }
+
+    notes {
+        text id PK "note_ + md5"
+        text theme_id FK "nullable"
+        text concept_id FK "nullable"
+        text text
+        text created_by FK
+    }
+
+    concept_excerpts {
+        text concept_id FK
+        text excerpt_id FK
+        text linked_by FK
+    }
+
+    theme_concepts {
+        text theme_id FK
+        text concept_id FK
+        text added_by FK
+    }
+
+    activity_log {
+        bigint id PK
+        text user_id FK
+        text action
+        text entity_type
+        text entity_id
+        jsonb detail
+    }
+
+    users ||--o{ sources : "uploaded_by"
+    users ||--o{ excerpts : "created_by"
+    users ||--o{ concepts : "created_by"
+    users ||--o{ themes : "created_by"
+    users ||--o{ notes : "created_by"
+    sources ||--o{ excerpts : "source_id"
+    concepts ||--o{ concept_excerpts : "concept_id"
+    excerpts ||--o{ concept_excerpts : "excerpt_id"
+    themes ||--o{ theme_concepts : "theme_id"
+    concepts ||--o{ theme_concepts : "concept_id"
+    themes ||--o{ notes : "theme_id"
+    concepts ||--o{ notes : "concept_id"
+    users ||--o{ activity_log : "user_id"
 ```
-users ─────────────────────────────────────────────────┐
-  id (TEXT, PK, from Identity sub)                     │
-  email (UNIQUE)                                       │
-  name, avatar_url                                     │
-  role ('user' | 'admin')                              │
-                                                       │
-sources ◄──uploaded_by─┘                               │
-  id (TEXT, PK, auto 'src_' + md5)                     │
-  filename, title, author, date                        │
-  content (TEXT, full text)                             │
-  word_count (INT, auto-calculated)                    │
-                                                       │
-excerpts ◄──source_id── sources                        │
-  id (TEXT, PK, auto 'exc_' + md5)          ◄──created_by─┘
-  text, start_pos, end_pos                             │
-                                                       │
-concepts                                               │
-  id (TEXT, PK, auto 'con_' + md5)          ◄──created_by─┘
-  label (UNIQUE, case-sensitive en DB)                 │
-                                                       │
-themes                                                 │
-  id (TEXT, PK, auto 'thm_' + md5)          ◄──created_by─┘
-  label (UNIQUE), color                                │
-                                                       │
-concept_excerpts (M:N)                                 │
-  concept_id ──► concepts                              │
-  excerpt_id ──► excerpts                   ◄──linked_by─┘
-                                                       │
-theme_concepts (M:N)                                   │
-  theme_id ──► themes                                  │
-  concept_id ──► concepts                   ◄──added_by──┘
-                                                       │
-notes                                                  │
-  id (TEXT, PK, auto 'note_' + md5)         ◄──created_by─┘
-  theme_id ──► themes                                  │
-  text                                                 │
-                                                       │
-activity_log                                           │
-  user_id ──► users                                    │
-  action, entity_type, entity_id, detail (JSONB)       │
+
+## Flujo de datos en el frontend
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant Tab as Tab activo
+    participant S as state.js
+    participant A as api.js
+    participant F as Netlify Function
+    participant DB as Postgres
+
+    Note over U,DB: Boot (al cargar la pagina)
+    A->>F: POST /api/auth (sync user)
+    F->>DB: UPSERT user
+    A->>F: GET /sources, /concepts, /themes, /excerpts
+    F->>DB: SELECT * ...
+    DB-->>F: rows
+    F-->>A: JSON
+    A-->>S: indexar por ID en state.*
+    S-->>Tab: notify() → re-render
+
+    Note over U,DB: Crear un excerpt
+    U->>Tab: Selecciona texto + escribe concepto
+    Tab->>S: addExcerpt(data)
+    S->>S: optimistic update (render inmediato)
+    S->>A: POST /api/excerpts
+    A->>F: { source_id, text, start_pos, end_pos, concept_ids }
+    F->>DB: INSERT excerpt + concept_excerpts
+    DB-->>F: excerpt creado
+    F-->>A: JSON
+    A-->>S: reemplazar temp → real
+    S-->>Tab: notify() → actualizar marks
 ```
 
-### Ownership y permisos
+## Permisos y ownership
 
-Cada entidad registra quién la creó:
-- `sources.uploaded_by` — quién importó la fuente
-- `excerpts.created_by` — quién marcó la sección
-- `concepts.created_by` — quién creó el concepto
-- `themes.created_by` — quién creó el tema
-- `concept_excerpts.linked_by` — quién vinculó concepto con sección
-- `theme_concepts.added_by` — quién agregó concepto al tema
-- `notes.created_by` — quién escribió la nota
+```mermaid
+graph LR
+    subgraph User["Rol: user"]
+        U1["Crear excerpts, conceptos, temas, notas"]
+        U2["Agregar conceptos a excerpts ajenos"]
+        U3["Agregar conceptos a temas ajenos"]
+        U4["Eliminar solo lo propio"]
+    end
 
-Roles:
-- **user**: CRUD propio. Puede crear, puede agregar a lo ajeno, solo puede borrar lo propio.
-- **admin**: todo lo anterior + borrar cualquier cosa + gestionar corpus + gestionar usuarios.
+    subgraph Admin["Rol: admin"]
+        A1["Todo lo de user"]
+        A2["Importar/editar/eliminar fuentes"]
+        A3["Eliminar cualquier entidad"]
+        A4["Gestionar usuarios y roles"]
+    end
+```
+
+Cada entidad registra quien la creo:
+
+| Campo | Tabla | Significado |
+|-------|-------|-------------|
+| `uploaded_by` | sources | quien importo la fuente |
+| `created_by` | excerpts, concepts, themes, notes | quien la creo |
+| `linked_by` | concept_excerpts | quien vinculo concepto con seccion |
+| `added_by` | theme_concepts | quien agrego concepto al tema |
 
 ## API REST
 
 Todos los endpoints viven bajo `/api/*` (redirect via `netlify.toml`).
 
-### Autenticación
+**Autenticacion:**
+- GET = publico (sin JWT)
+- POST/PUT/DELETE = requieren `Authorization: Bearer <JWT>` de Netlify Identity
+- En dev local, si no hay JWT se usa el usuario de `.env` (`DEV_USER_*`)
 
-- GET endpoints son **publicos** (no requieren JWT)
-- POST/PUT/DELETE requieren `Authorization: Bearer <JWT>` de Netlify Identity
-- En dev local (`netlify dev`), si no hay JWT se usa el usuario definido en `.env` (`DEV_USER_*`)
+### Sources
 
-### Endpoints
-
-| Método | Ruta | Auth | Descripción |
+| Metodo | Ruta | Auth | Descripcion |
 |--------|------|------|-------------|
-| POST | `/api/auth` | JWT | Sync user a DB (upsert) |
-| GET | `/api/auth` | JWT | Info del usuario actual |
-| GET | `/api/sources` | - | Lista fuentes (sin content) |
-| GET | `/api/sources?id=X` | - | Fuente con content |
+| GET | `/api/sources` | -- | Lista fuentes (sin content, con excerpt_count) |
+| GET | `/api/sources?id=X` | -- | Fuente con content |
 | POST | `/api/sources` | admin | Crear fuente |
 | PUT | `/api/sources` | admin | Actualizar fuente |
-| DELETE | `/api/sources?id=X` | admin | Eliminar fuente + excerpts |
-| GET | `/api/excerpts?source_id=X` | - | Excerpts de una fuente |
-| GET | `/api/excerpts?concept_id=X` | - | Excerpts de un concepto |
-| POST | `/api/excerpts` | JWT | Crear excerpt |
+| DELETE | `/api/sources?id=X` | admin | Eliminar fuente + cascada |
+
+### Excerpts
+
+| Metodo | Ruta | Auth | Descripcion |
+|--------|------|------|-------------|
+| GET | `/api/excerpts` | -- | Todos los excerpts (boot) |
+| GET | `/api/excerpts?source_id=X` | -- | Excerpts de una fuente |
+| GET | `/api/excerpts?concept_id=X` | -- | Excerpts de un concepto |
+| POST | `/api/excerpts` | JWT | Crear excerpt + vincular conceptos |
 | DELETE | `/api/excerpts?id=X` | JWT | Eliminar (propio o admin) |
-| GET | `/api/concepts` | - | Lista conceptos con counts |
-| GET | `/api/concepts?id=X` | - | Detalle de concepto |
+
+### Concepts
+
+| Metodo | Ruta | Auth | Descripcion |
+|--------|------|------|-------------|
+| GET | `/api/concepts` | -- | Lista con excerpt_count y source_count |
 | POST | `/api/concepts` | JWT | Crear concepto |
 | PUT | `/api/concepts` | JWT | Renombrar (propio o admin) |
 | DELETE | `/api/concepts?id=X` | admin | Eliminar concepto |
 | POST | `/api/concepts/link-excerpt` | JWT | Vincular concepto-excerpt |
 | POST | `/api/concepts/unlink-excerpt` | JWT | Desvincular (propio o admin) |
-| GET | `/api/themes` | - | Lista temas |
+
+### Themes
+
+| Metodo | Ruta | Auth | Descripcion |
+|--------|------|------|-------------|
+| GET | `/api/themes` | -- | Lista temas |
 | POST | `/api/themes` | JWT | Crear tema |
-| PUT | `/api/themes` | JWT | Actualizar tema |
+| PUT | `/api/themes` | JWT | Actualizar (label, color) |
 | DELETE | `/api/themes?id=X` | admin | Eliminar tema |
 | POST | `/api/themes/add-concept` | JWT | Agregar concepto a tema |
 | POST | `/api/themes/remove-concept` | JWT | Quitar concepto de tema |
-| GET | `/api/notes?theme_id=X` | - | Notas de un tema |
-| POST | `/api/notes` | JWT | Crear nota |
-| PUT | `/api/notes` | JWT | Actualizar nota |
+
+### Notes
+
+| Metodo | Ruta | Auth | Descripcion |
+|--------|------|------|-------------|
+| GET | `/api/notes?theme_id=X` | -- | Notas de un tema |
+| GET | `/api/notes?concept_id=X` | -- | Notas de un concepto |
+| POST | `/api/notes` | JWT | Crear nota (theme_id o concept_id) |
+| PUT | `/api/notes` | JWT | Editar (propio o admin) |
 | DELETE | `/api/notes?id=X` | JWT | Eliminar (propio o admin) |
-| GET | `/api/graph` | - | Grafo completo de conceptos |
-| GET | `/api/graph?source_id=X` | - | Grafo filtrado por fuente |
-| GET | `/api/graph?user_id=X` | - | Grafo filtrado por usuario |
-| GET | `/api/admin/users` | admin | Lista usuarios |
-| PUT | `/api/admin/users` | admin | Cambiar rol |
+
+### Graph
+
+| Metodo | Ruta | Auth | Descripcion |
+|--------|------|------|-------------|
+| GET | `/api/graph` | -- | Grafo completo (nodes + links + themes) |
+| GET | `/api/graph?source_id=X` | -- | Grafo filtrado por fuente |
+| GET | `/api/graph?user_id=X` | -- | Grafo filtrado por usuario |
+
+### Admin
+
+| Metodo | Ruta | Auth | Descripcion |
+|--------|------|------|-------------|
+| GET | `/api/admin/users` | admin | Lista usuarios registrados |
+| PUT | `/api/admin/users` | admin | Cambiar rol (user/admin) |
 | GET | `/api/admin/activity` | admin | Log de actividad |
 | GET | `/api/admin/stats` | admin | Estadisticas generales |
 
-## Frontend: flujo de datos
+## Arquitectura del frontend
 
+```mermaid
+graph TB
+    subgraph Tabs
+        T1["sources.js\nLista de fuentes\nImport/edit (admin)"]
+        T2["reader.js\nLector con seleccion\nHighlighter + popup"]
+        T3["themes.js\nMapa de conceptos\nTemas + notas"]
+    end
+
+    subgraph Components
+        C1["text-highlighter.js\nRenderiza marks sobre texto"]
+        C2["popup.js\nCaptura seleccion → excerpt"]
+        C3["autocomplete.js\nSugerencia de conceptos"]
+        C4["concept-gloss.js\nSidebar de conceptos"]
+        C5["concept-map.js\nGrafo 2D (d3-force)"]
+        C6["concept-map-3d.js\nGrafo 3D (3d-force-graph)"]
+        C7["minimap.js\nMiniatura de navegacion"]
+        C8["split-view.js\nPaneles redimensionables"]
+    end
+
+    subgraph Core
+        M["main.js — boot + auth"]
+        R["router.js — hash routing"]
+        S["state.js — cache + pub/sub"]
+        A["api.js — fetch + JWT + progress"]
+    end
+
+    M --> R
+    R --> T1 & T2 & T3
+    T1 & T2 & T3 --> S
+    T2 --> C1 & C2 & C3 & C4 & C7 & C8
+    T3 --> C5 & C6
+    S --> A
 ```
-                    ┌─────────┐
-                    │  api.js │ ◄── fetch + JWT + progress bar
-                    └────┬────┘
-                         │ async
-                    ┌────▼────┐
-                    │ state.js│ ◄── cache in-memory + normalización
-                    └────┬────┘
-                         │ notify()
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-         sources.js  reader.js  themes.js   ◄── subscribers re-renderizan
-```
-
-### state.js
-
-- **Cache**: objetos indexados por ID (`state.sources`, `state.excerpts`, etc.)
-- **Pub/Sub**: `subscribe(fn)` registra listeners, `notify()` los dispara
-- **Normalización**: API devuelve `snake_case`, state normaliza a `camelCase`
-- **Lazy loading**: excerpts se cargan por fuente, notes por tema
-- **Optimistic updates**: `addExcerpt` muestra el mark antes de confirmar con server
-
-### Excerpt creation flow
-
-1. Usuario selecciona texto en el reader
-2. `popup.js` captura la selección y calcula offsets sobre el texto plano
-3. Usuario escribe nombre de concepto (con autocomplete)
-4. `reader.js > handleCreateExcerpt` orquesta:
-   - `state.addConcept(label)` si es nuevo → POST /api/concepts
-   - `state.addExcerpt({...})` → optimistic render + POST /api/excerpts
-5. `notify()` dispara re-render del texto (marks) y sidebar (gloss)
 
 ## Tipografia
 
-| Uso | Fuente | Peso |
-|-----|--------|------|
-| UI (botones, labels, nav) | Gabarito | 400-700 |
-| Lectura (reader) | Sorts Mill Goudy | 400, 400i |
-| Editor / codigo | IBM Plex Mono | 400, 400i, 700 |
+| Uso | Fuente | Variable CSS | Pesos |
+|-----|--------|-------------|-------|
+| UI (botones, labels, nav) | Gabarito | `--font` | 400-700 |
+| Lectura (reader) | Sorts Mill Goudy | `--font-reading` | 400, 400i |
+| Editor / codigo / preview | IBM Plex Mono | `--mono` | 400, 400i, 700 |
 
-IBM Plex Mono se sirve self-hosted desde `public/fonts/ibm-plex-mono/`.
+IBM Plex Mono se sirve self-hosted desde `public/fonts/ibm-plex-mono/` (woff2).
 
 ## Desarrollo local
 
 ```bash
 npm install
-netlify dev          # arranca functions + frontend en localhost:8888
+cp .env.example .env   # configurar DATABASE_URL
+npx netlify dev         # localhost:8888
 ```
 
-En local, la autenticación se bypasea usando las variables de `.env`:
+En local, sin JWT, las functions usan el dev user definido en `.env`:
+
 ```
 DEV_USER_EMAIL=hspencer@ead.cl
 DEV_USER_NAME=Herbert Spencer
 DEV_USER_ID=user_mn5b5yb6
 ```
 
-No se necesita login con Google en localhost. Las funciones serverless detectan la ausencia de JWT y usan el dev user.
+La DB es compartida entre dev y produccion (misma instancia Neon).
 
 ## Deploy
 
-Push a `main` → Netlify auto-deploy. La DB es compartida entre dev y produccion (misma Neon).
+Push a `main` → Netlify auto-deploy (CDN + Functions). La DB se provisiona via Neon.
