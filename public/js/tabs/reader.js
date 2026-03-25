@@ -1,7 +1,7 @@
 // reader.js — Tab 2: lector con selección y etiquetado
 
 import {
-  state, subscribe,
+  state, subscribe, loadExcerptsForSource,
   addExcerpt, addConcept, addConceptToExcerpt,
   findConceptByLabel, getExcerptsForSource, getExcerptsForConcept, getSource,
   removeConcept, renameConcept, removeConceptFromExcerpt, removeExcerpt,
@@ -154,7 +154,12 @@ export async function onReaderActivated(params) {
   const readerContent = document.getElementById("readerTextContent");
   readerContent.innerHTML = `<p class="placeholder">Cargando...</p>`;
 
-  currentText = await getSourceText(sourceId);
+  // Load text and excerpts in parallel
+  const [text] = await Promise.all([
+    getSourceText(sourceId),
+    loadExcerptsForSource(sourceId),
+  ]);
+  currentText = text;
   if (!currentText) {
     readerContent.innerHTML = `<p class="placeholder">No se pudo cargar el texto</p>`;
     return;
@@ -411,7 +416,7 @@ function computeExcerptHash() {
 
 // ── Create excerpt ────────────────────────────────────────────────────
 
-function handleCreateExcerpt({ text, start, end, conceptLabel }) {
+async function handleCreateExcerpt({ text, start, end, conceptLabel }) {
   if (!currentSourceId || !conceptLabel) return;
 
   let concept = findConceptByLabel(conceptLabel);
@@ -420,10 +425,10 @@ function handleCreateExcerpt({ text, start, end, conceptLabel }) {
   if (concept) {
     conceptId = concept.id;
   } else {
-    conceptId = addConcept(conceptLabel);
+    conceptId = await addConcept(conceptLabel);
   }
 
-  const excerptId = addExcerpt({
+  const excerptId = await addExcerpt({
     sourceId: currentSourceId,
     text,
     start,
@@ -453,7 +458,7 @@ function enterAddSectionMode(conceptId) {
 
   showToast(`Selecciona texto para agregar otra § a [${c.label}]`);
 
-  function onMouseUp() {
+  async function onMouseUp() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
@@ -472,7 +477,7 @@ function enterAddSectionMode(conceptId) {
       return;
     }
 
-    const excerptId = addExcerpt({
+    const excerptId = await addExcerpt({
       sourceId: currentSourceId,
       text: sourceText.slice(startOffset, endOffset),
       start: startOffset,

@@ -119,8 +119,8 @@ function countMarkedChars(sourceId) {
   const excerpts = getExcerptsForSource(sourceId);
   const chars = new Set();
   for (const e of excerpts) {
-    const start = e.start_pos ?? e.start;
-    const end = e.end_pos ?? e.end;
+    const start = e.start;
+    const end = e.end;
     if (typeof start === "number" && typeof end === "number") {
       for (let i = start; i < end; i++) chars.add(i);
     }

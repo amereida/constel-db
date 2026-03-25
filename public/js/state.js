@@ -1,14 +1,37 @@
 // state.js — store central con pub/sub
 // In-memory cache backed by API. Reads are instant, writes sync to server.
+// API devuelve snake_case; normalizamos a camelCase al almacenar.
 
 import * as api from "./api.js";
+
+// ── Normalizadores (API snake_case → frontend camelCase) ─────────────────────
+
+function normalizeExcerpt(raw) {
+  return {
+    ...raw,
+    sourceId:   raw.source_id   ?? raw.sourceId,
+    start:      raw.start_pos   ?? raw.start,
+    end:        raw.end_pos     ?? raw.end,
+    conceptIds: raw.concept_ids ?? raw.conceptIds ?? [],
+    createdBy:  raw.created_by  ?? raw.createdBy,
+  };
+}
+
+function normalizeConcept(raw) {
+  return {
+    ...raw,
+    themeId:      raw.theme_id      ?? raw.themeId ?? null,
+    excerptCount: raw.excerpt_count ?? raw.excerptCount ?? 0,
+    createdBy:    raw.created_by    ?? raw.createdBy,
+  };
+}
 
 // ── Estado (in-memory cache) ─────────────────────────────────────────────────
 
 export const state = {
   sources: {},   // id → { id, filename, title, author, date, word_count, ... }
-  excerpts: {},  // id → { id, source_id, text, start_pos, end_pos, concept_ids[], created_by, ... }
-  concepts: {},  // id → { id, label, theme_id, created_by, excerpt_count, ... }
+  excerpts: {},  // id → { id, sourceId, text, start, end, conceptIds[], createdBy, ... }
+  concepts: {},  // id → { id, label, themeId, createdBy, excerptCount, ... }
   themes: {},    // id → { id, label, color, created_by, ... }
   notes: {},     // id → { id, theme_id, text, created_by, ... }
   ui: {
@@ -47,7 +70,7 @@ export async function loadState() {
     for (const s of sourceList) state.sources[s.id] = s;
 
     state.concepts = {};
-    for (const c of conceptList) state.concepts[c.id] = c;
+    for (const c of conceptList) state.concepts[c.id] = normalizeConcept(c);
 
     state.themes = {};
     for (const t of themeList) state.themes[t.id] = t;
@@ -68,7 +91,7 @@ export async function loadExcerptsForSource(sourceId) {
   try {
     const rows = await api.excerpts.bySource(sourceId);
     for (const exc of rows) {
-      state.excerpts[exc.id] = exc;
+      state.excerpts[exc.id] = normalizeExcerpt(exc);
     }
     notify();
   } catch (e) {
@@ -110,7 +133,7 @@ export async function removeSource(id) {
     delete state.sources[id];
     // Remove cached excerpts for this source
     for (const [eid, exc] of Object.entries(state.excerpts)) {
-      if (exc.source_id === id) delete state.excerpts[eid];
+      if (exc.sourceId === id) delete state.excerpts[eid];
     }
     notify();
   } catch (e) {
@@ -159,7 +182,7 @@ export async function addExcerpt({ sourceId, text, start, end, conceptIds }) {
       end_pos: end,
       concept_ids: conceptIds || [],
     });
-    state.excerpts[exc.id] = exc;
+    state.excerpts[exc.id] = normalizeExcerpt(exc);
     notify();
     return exc.id;
   } catch (e) {
@@ -183,8 +206,8 @@ export async function addConceptToExcerpt(excerptId, conceptId) {
   try {
     await api.concepts.linkExcerpt(conceptId, excerptId);
     const exc = state.excerpts[excerptId];
-    if (exc && !exc.concept_ids?.includes(conceptId)) {
-      exc.concept_ids = [...(exc.concept_ids || []), conceptId];
+    if (exc && !exc.conceptIds?.includes(conceptId)) {
+      exc.conceptIds = [...(exc.conceptIds || []), conceptId];
     }
     notify();
   } catch (e) {
@@ -197,7 +220,7 @@ export async function removeConceptFromExcerpt(excerptId, conceptId) {
     await api.concepts.unlinkExcerpt(conceptId, excerptId);
     const exc = state.excerpts[excerptId];
     if (exc) {
-      exc.concept_ids = (exc.concept_ids || []).filter(id => id !== conceptId);
+      exc.conceptIds = (exc.conceptIds || []).filter(id => id !== conceptId);
     }
     notify();
   } catch (e) {
@@ -206,12 +229,12 @@ export async function removeConceptFromExcerpt(excerptId, conceptId) {
 }
 
 export function getExcerptsForSource(sourceId) {
-  return Object.values(state.excerpts).filter(e => e.source_id === sourceId);
+  return Object.values(state.excerpts).filter(e => e.sourceId === sourceId);
 }
 
 export function getExcerptsForConcept(conceptId) {
   return Object.values(state.excerpts).filter(e =>
-    (e.concept_ids || []).includes(conceptId)
+    (e.conceptIds || []).includes(conceptId)
   );
 }
 
@@ -219,11 +242,11 @@ export function getExcerptsForConcept(conceptId) {
 
 export async function addConcept(label, themeId = null) {
   try {
-    const concept = await api.concepts.create({ label });
+    const concept = normalizeConcept(await api.concepts.create({ label }));
     state.concepts[concept.id] = concept;
     if (themeId) {
       await api.themes.addConcept(themeId, concept.id);
-      concept.theme_id = themeId;
+      concept.themeId = themeId;
     }
     notify();
     return concept.id;
@@ -238,8 +261,8 @@ export async function removeConcept(id) {
     await api.concepts.delete(id);
     // Remove from local excerpts
     for (const exc of Object.values(state.excerpts)) {
-      if (exc.concept_ids) {
-        exc.concept_ids = exc.concept_ids.filter(cid => cid !== id);
+      if (exc.conceptIds) {
+        exc.conceptIds = exc.conceptIds.filter(cid => cid !== id);
       }
     }
     delete state.concepts[id];
@@ -264,14 +287,14 @@ export async function moveConcept(id, newThemeId) {
   try {
     const c = state.concepts[id];
     // Remove from old theme
-    if (c?.theme_id) {
-      await api.themes.removeConcept(c.theme_id, id);
+    if (c?.themeId) {
+      await api.themes.removeConcept(c.themeId, id);
     }
     // Add to new theme
     if (newThemeId) {
       await api.themes.addConcept(newThemeId, id);
     }
-    if (c) c.theme_id = newThemeId;
+    if (c) c.themeId = newThemeId;
     notify();
   } catch (e) {
     console.error("Error moving concept:", e);
@@ -287,16 +310,16 @@ export function getAllConceptLabels() {
   return Object.values(state.concepts).map(c => ({
     id: c.id,
     label: c.label,
-    count: Number(c.excerpt_count) || getExcerptsForConcept(c.id).length,
+    count: Number(c.excerptCount) || getExcerptsForConcept(c.id).length,
   }));
 }
 
 export function getConceptsForTheme(themeId) {
-  return Object.values(state.concepts).filter(c => c.theme_id === themeId);
+  return Object.values(state.concepts).filter(c => c.themeId === themeId);
 }
 
 export function getUngroupedConcepts() {
-  return Object.values(state.concepts).filter(c => !c.theme_id);
+  return Object.values(state.concepts).filter(c => !c.themeId);
 }
 
 // ── CRUD: Themes ────────────────────────────────────────────────────────────
@@ -326,7 +349,7 @@ export async function removeTheme(id) {
     await api.themes.delete(id);
     // Ungroup local concepts
     for (const c of Object.values(state.concepts)) {
-      if (c.theme_id === id) c.theme_id = null;
+      if (c.themeId === id) c.themeId = null;
     }
     // Remove local notes
     for (const [nid, n] of Object.entries(state.notes)) {
@@ -420,30 +443,30 @@ export async function computeConceptGraph(sourceId = null, userId = null) {
  */
 function computeConceptGraphLocal(sourceId = null) {
   const excList = sourceId
-    ? Object.values(state.excerpts).filter(e => e.source_id === sourceId)
+    ? Object.values(state.excerpts).filter(e => e.sourceId === sourceId)
     : Object.values(state.excerpts);
 
   const conceptIds = new Set();
   for (const exc of excList) {
-    for (const cid of (exc.concept_ids || [])) conceptIds.add(cid);
+    for (const cid of (exc.conceptIds || [])) conceptIds.add(cid);
   }
 
-  const maxCount = Math.max(1, ...Object.values(state.concepts).map(c => Number(c.excerpt_count) || 0));
+  const maxCount = Math.max(1, ...Object.values(state.concepts).map(c => Number(c.excerptCount) || 0));
   const nodes = [...conceptIds]
     .map(id => state.concepts[id])
     .filter(Boolean)
     .map(c => ({
       id: c.id,
       label: c.label,
-      themeId: c.theme_id,
-      excerptCount: Number(c.excerpt_count) || 0,
-      score: (Number(c.excerpt_count) || 0) / maxCount,
+      themeId: c.themeId,
+      excerptCount: Number(c.excerptCount) || 0,
+      score: (Number(c.excerptCount) || 0) / maxCount,
     }));
 
   // Co-excerpt links
   const linkMap = new Map();
   for (const exc of excList) {
-    const cids = exc.concept_ids || [];
+    const cids = exc.conceptIds || [];
     for (let i = 0; i < cids.length; i++) {
       for (let j = i + 1; j < cids.length; j++) {
         const k = cids[i] < cids[j] ? `${cids[i]}::${cids[j]}` : `${cids[j]}::${cids[i]}`;
