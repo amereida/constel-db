@@ -183,8 +183,26 @@
   font-weight: 500;
 }
 
+.source-detail-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0 0 var(--space-md);
+}
+
 .source-detail-section {
   margin-bottom: var(--space-lg);
+}
+
+.btn-refresh {
+  opacity: 0.4;
+  vertical-align: middle;
+  margin-left: var(--space-xs);
+  font-size: 0.875rem;
+  transition: opacity 0.15s;
+}
+
+.btn-refresh:hover {
+  opacity: 1;
 }
 
 .source-detail-section h3 {

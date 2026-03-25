@@ -36,39 +36,21 @@
 }
 
 /* ── Login screen ────────────────────────────────────────────────────── */
-.login-screen {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  z-index: 1000;
+/* Login button in header (unauthenticated users) */
+.btn-login {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition: opacity var(--duration) var(--ease);
 }
 
-.login-card {
-  text-align: center;
-  padding: var(--space-xl) calc(var(--space-xl) * 2);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-}
-
-.login-card h1 {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: var(--space-sm);
-}
-
-.login-card p {
-  color: var(--muted);
-  margin-bottom: var(--space-lg);
-}
-
-.login-card .btn-primary {
-  padding: var(--space-sm) var(--space-lg);
-  font-size: var(--font-size-base);
+.btn-login:hover {
+  opacity: 0.85;
 }
 
 /* ── User info (header) ──────────────────────────────────────────────── */

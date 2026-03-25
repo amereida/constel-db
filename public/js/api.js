@@ -85,6 +85,17 @@ async function request(method, path, body) {
   }
 }
 
+/**
+ * Ensure user is logged in. If not, redirect to Google OAuth.
+ * Returns true if logged in, false if redirecting.
+ */
+export function requireLogin() {
+  if (getCurrentUser()) return true;
+  const siteUrl = window.location.origin;
+  window.location.href = `${siteUrl}/.netlify/identity/authorize?provider=google`;
+  return false;
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 export const auth = {

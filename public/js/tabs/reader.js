@@ -15,6 +15,7 @@ import { initAutocomplete } from "../components/autocomplete.js";
 import { renderMinimap } from "../components/minimap.js";
 import { renderConceptGloss } from "../components/concept-gloss.js";
 import { getSourceText } from "./sources.js";
+import { getCurrentUser, requireLogin } from "../api.js";
 
 let currentSourceId = null;
 let currentText = null;
@@ -420,6 +421,9 @@ function computeExcerptHash() {
 async function handleCreateExcerpt({ text, conceptLabel }) {
   if (!currentSourceId || !conceptLabel) return;
 
+  // Require login to create excerpts
+  if (!requireLogin()) return;
+
   // Immediately show toast (instant feedback)
   showToast(`§ [${conceptLabel}] …`);
 
@@ -456,6 +460,8 @@ async function handleCreateExcerpt({ text, conceptLabel }) {
   } catch (err) {
     showToast(`Error: ${err.message}`);
     console.error("handleCreateExcerpt:", err);
+    // Remove any lingering saving-highlight
+    document.querySelectorAll(".saving-highlight").forEach(el => el.remove());
   }
 }
 

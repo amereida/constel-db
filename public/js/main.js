@@ -2,7 +2,7 @@
 // Conecta auth, state, router, tabs y componentes.
 
 import { state, loadState, subscribe, getStats, notify } from "./state.js";
-import { initApi, getCurrentUser, auth } from "./api.js";
+import { initApi, getCurrentUser, requireLogin, auth } from "./api.js";
 import { initRouter, onTabChange } from "./router.js";
 import { initSplitViews } from "./components/split-view.js";
 import { initSourcesTab, onSourcesActivated } from "./tabs/sources.js";
@@ -17,20 +17,15 @@ async function boot() {
   applyTranslations();
   showStatus(t("reader.loading"));
 
-  // 1. Init Netlify Identity
+  // 1. Init Netlify Identity + handle OAuth callback
   await initIdentity();
+  handleOAuthCallback();
 
-  // 2. Check auth — require login (skip on localhost for dev)
+  // 2. Check auth (no longer blocks the app)
   const user = getCurrentUser();
   const isDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 
-  if (!user && !isDev) {
-    showLoginScreen();
-    return;
-  }
-
-  // 3. Sync user to DB
-  // In dev mode without Identity, backend uses DEV_USER_* env vars as fallback
+  // 3. Sync user to DB if logged in
   if (user || isDev) {
     try {
       const dbUser = await auth.sync();
@@ -40,17 +35,19 @@ async function boot() {
     }
   }
 
-  // 4. Show user info in header
+  // 4. Show user info or login button in header
   if (user) {
     showUserInfo(user);
   } else if (isDev) {
-    showStatus("⚡ Modo desarrollo — sin autenticación");
+    showDevInfo();
+  } else {
+    showLoginButton();
   }
 
-  // 5. Load state from API
+  // 5. Load state from API (public endpoints work without auth)
   await loadState();
 
-  // 6. Initialize UI
+  // 6. Initialize UI — always, regardless of auth
   initSplitViews();
   await initSourcesTab();
   initReaderTab();
@@ -107,6 +104,7 @@ function initIdentity() {
       });
 
       identity.on("logout", () => {
+        state.currentUser = null;
         location.reload();
       });
 
@@ -116,41 +114,67 @@ function initIdentity() {
     if (window.netlifyIdentity) {
       setup(window.netlifyIdentity);
     } else {
-      // Widget script hasn't loaded yet — poll until it does
       const check = setInterval(() => {
         if (window.netlifyIdentity) {
           clearInterval(check);
           setup(window.netlifyIdentity);
         }
       }, 100);
-      // Give up after 10s
       setTimeout(() => { clearInterval(check); resolve(); }, 10000);
     }
   });
 }
 
-function showLoginScreen() {
-  const app = document.getElementById("app") || document.body;
-  const loginEl = document.createElement("div");
-  loginEl.className = "login-screen";
-  loginEl.innerHTML = `
-    <div class="login-card">
-      <h1>con§tel</h1>
-      <p>Herramienta colaborativa de análisis temático</p>
-      <button class="btn-primary" id="loginBtn">Iniciar sesión con Google</button>
-    </div>
+/**
+ * Handle OAuth callback manually.
+ * After Google OAuth, Netlify redirects back with #access_token=...
+ * The Identity widget should process this, but if it doesn't (broken widget),
+ * we detect it and reload to let the widget retry.
+ */
+function handleOAuthCallback() {
+  const hash = window.location.hash;
+  if (hash && hash.includes("access_token=")) {
+    // The widget should handle this automatically via init().
+    // If after 2 seconds we still don't have a user, force a clean reload
+    // (strip the hash so we don't loop).
+    setTimeout(() => {
+      if (!getCurrentUser()) {
+        // Store a flag to avoid infinite loop
+        const retries = parseInt(sessionStorage.getItem("oauth_retries") || "0");
+        if (retries < 2) {
+          sessionStorage.setItem("oauth_retries", String(retries + 1));
+          // Reload without hash — the widget may need a fresh page
+          window.location.replace(window.location.pathname);
+        } else {
+          // Give up after 2 retries
+          sessionStorage.removeItem("oauth_retries");
+          console.error("OAuth callback failed after retries");
+          window.location.replace(window.location.pathname);
+        }
+      } else {
+        sessionStorage.removeItem("oauth_retries");
+      }
+    }, 2000);
+  } else {
+    sessionStorage.removeItem("oauth_retries");
+  }
+}
+
+// ── Login helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Show "Entrar" button in header for unauthenticated users.
+ */
+function showLoginButton() {
+  const container = document.getElementById("userInfo");
+  if (!container) return;
+  container.innerHTML = `
+    <button class="btn-sm btn-login" id="loginBtn">Entrar</button>
   `;
-  app.prepend(loginEl);
+  container.style.display = "flex";
 
-  // Hide the main UI until logged in
-  document.querySelector(".shell-header")?.style.setProperty("display", "none");
-  document.querySelector(".tabs-bar")?.style.setProperty("display", "none");
-  document.querySelector(".tab-panels")?.style.setProperty("display", "none");
-
-  loginEl.querySelector("#loginBtn")?.addEventListener("click", () => {
-    // Redirect directly to Google OAuth via Netlify Identity API
-    const siteUrl = location.origin;
-    window.location.href = `${siteUrl}/.netlify/identity/authorize?provider=google`;
+  container.querySelector("#loginBtn")?.addEventListener("click", () => {
+    requireLogin();
   });
 }
 
@@ -179,6 +203,10 @@ function showUserInfo(user) {
       window.netlifyIdentity.logout();
     }
   });
+}
+
+function showDevInfo() {
+  showStatus("dev — sin auth");
 }
 
 // ── Theme toggle ────────────────────────────────────────────────────────────

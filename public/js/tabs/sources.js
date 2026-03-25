@@ -6,16 +6,18 @@ import { navigateTo } from "../router.js";
 // cache de textos cargados (sourceId -> text)
 const textCache = new Map();
 let selectedSourceId = null;
+let gridRendered = false;
 
 export async function initSourcesTab() {
   renderSourcesGrid();
+  gridRendered = true;
   subscribe(() => renderSourcesGrid());
   initCorpusSearch();
   initAddSourceButton();
 }
 
 export function onSourcesActivated() {
-  renderSourcesGrid();
+  if (!gridRendered) renderSourcesGrid();
 }
 
 // -- Grilla Mondrian de fuentes -------------------------------------------
@@ -89,7 +91,7 @@ function renderSourceCell(src) {
 
 // -- Ficha de fuente (columna derecha) ------------------------------------
 
-async function renderSourceDetail(sourceId) {
+async function renderSourceDetail(sourceId, forceReload = false) {
   const container = document.getElementById("sourceDetailContent");
   if (!container || !sourceId) return;
 
@@ -99,28 +101,28 @@ async function renderSourceDetail(sourceId) {
     return;
   }
 
-  container.innerHTML = `<p class="placeholder">Cargando...</p>`;
+  // Use cached excerpts first (instant), fetch in background if needed
+  let excerpts = getExcerptsForSource(sourceId);
+  const needsLoad = forceReload || excerpts.length === 0;
 
-  // Load excerpts for this source
-  await loadExcerptsForSource(sourceId);
-  const excerpts = getExcerptsForSource(sourceId);
+  // Render immediately with what we have
+  renderDetailContent(container, src, excerpts, sourceId);
 
-  // Collect unique concepts from excerpts
-  const conceptMap = new Map();
-  for (const exc of excerpts) {
-    if (exc.conceptIds) {
-      for (const cid of exc.conceptIds) {
-        const concept = state.concepts[cid];
-        if (concept && !conceptMap.has(cid)) {
-          conceptMap.set(cid, concept);
-        }
-      }
+  // Then load from server if needed and re-render
+  if (needsLoad) {
+    await loadExcerptsForSource(sourceId);
+    excerpts = getExcerptsForSource(sourceId);
+    // Only re-render if still selected
+    if (selectedSourceId === sourceId) {
+      renderDetailContent(container, src, excerpts, sourceId);
     }
   }
-  const concepts = [...conceptMap.values()];
+}
 
+function renderDetailContent(container, src, excerpts, sourceId) {
   const isAdmin = state.currentUser?.role === "admin";
 
+  // -- Fixed zone (instant) --
   container.innerHTML = `
     <div class="source-detail-view">
       <div class="source-detail-header">
@@ -137,34 +139,15 @@ async function renderSourceDetail(sourceId) {
         <div>${(src.word_count || 0).toLocaleString()} palabras</div>
       </div>
 
-      ${excerpts.length ? `
-        <div class="source-detail-section">
-          <h3>${excerpts.length} secciones</h3>
-          <div class="source-detail-excerpts">
-            ${excerpts.map(exc => {
-              const preview = (exc.text || "").slice(0, 80) + ((exc.text || "").length > 80 ? "..." : "");
-              const excConcepts = (exc.conceptIds || []).map(cid => state.concepts[cid]?.label).filter(Boolean);
-              return `
-                <div class="source-excerpt-item" data-exc-source="${sourceId}">
-                  ${escapeHtml(preview)}
-                  ${excConcepts.length ? `<div class="source-excerpt-concepts">${excConcepts.map(escapeHtml).join(", ")}</div>` : ""}
-                </div>
-              `;
-            }).join("")}
-          </div>
-        </div>
-      ` : ""}
+      <hr class="source-detail-divider" />
 
-      ${concepts.length ? `
-        <div class="source-detail-section">
-          <h3>${concepts.length} conceptos</h3>
-          <div class="source-detail-concepts">
-            ${concepts.map(c => `<span class="source-concept-tag">${escapeHtml(c.label)}</span>`).join("")}
-          </div>
-        </div>
-      ` : ""}
+      <!-- Dynamic zone (sections + concepts) -->
+      <div id="sourceDetailDynamic"></div>
     </div>
   `;
+
+  // Render dynamic zone
+  renderDetailDynamic(excerpts, sourceId);
 
   // Event: Leer
   document.getElementById("detailReadBtn")?.addEventListener("click", () => {
@@ -175,9 +158,65 @@ async function renderSourceDetail(sourceId) {
   document.getElementById("detailEditBtn")?.addEventListener("click", () => {
     renderSourceEditor(sourceId);
   });
+}
 
-  // Event: click excerpt -> go to reader
-  container.querySelectorAll(".source-excerpt-item").forEach(el => {
+function renderDetailDynamic(excerpts, sourceId) {
+  const dynEl = document.getElementById("sourceDetailDynamic");
+  if (!dynEl) return;
+
+  // Collect unique concepts
+  const conceptMap = new Map();
+  for (const exc of excerpts) {
+    if (exc.conceptIds) {
+      for (const cid of exc.conceptIds) {
+        const concept = state.concepts[cid];
+        if (concept && !conceptMap.has(cid)) conceptMap.set(cid, concept);
+      }
+    }
+  }
+  const concepts = [...conceptMap.values()];
+
+  dynEl.innerHTML = `
+    ${excerpts.length ? `
+      <div class="source-detail-section">
+        <h3>${excerpts.length} secciones
+          <button class="btn-icon btn-refresh" id="detailRefreshBtn" title="Actualizar">&#x21bb;</button>
+        </h3>
+        <div class="source-detail-excerpts">
+          ${excerpts.map(exc => {
+            const preview = (exc.text || "").slice(0, 80) + ((exc.text || "").length > 80 ? "..." : "");
+            const excConcepts = (exc.conceptIds || []).map(cid => state.concepts[cid]?.label).filter(Boolean);
+            return `
+              <div class="source-excerpt-item" data-exc-source="${sourceId}">
+                ${escapeHtml(preview)}
+                ${excConcepts.length ? `<div class="source-excerpt-concepts">${excConcepts.map(escapeHtml).join(", ")}</div>` : ""}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    ` : `
+      <p class="placeholder" style="padding:var(--space-md) 0">Sin secciones aun</p>
+    `}
+
+    ${concepts.length ? `
+      <div class="source-detail-section">
+        <h3>${concepts.length} conceptos</h3>
+        <div class="source-detail-concepts">
+          ${concepts.map(c => `<span class="source-concept-tag">${escapeHtml(c.label)}</span>`).join("")}
+        </div>
+      </div>
+    ` : ""}
+  `;
+
+  // Event: refresh
+  document.getElementById("detailRefreshBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    renderSourceDetail(sourceId, true);
+  });
+
+  // Event: click excerpt -> reader
+  dynEl.querySelectorAll(".source-excerpt-item").forEach(el => {
     el.addEventListener("click", () => {
       navigateTo("reader", { src: sourceId });
     });
