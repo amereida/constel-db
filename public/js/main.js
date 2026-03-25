@@ -128,35 +128,68 @@ function initIdentity() {
 /**
  * Handle OAuth callback manually.
  * After Google OAuth, Netlify redirects back with #access_token=...
- * The Identity widget should process this, but if it doesn't (broken widget),
- * we detect it and reload to let the widget retry.
+ * The Identity widget should process this, but on Safari/iPad
+ * it often fails to process the token. We parse it ourselves,
+ * store it in localStorage in GoTrue format, and reload.
  */
 function handleOAuthCallback() {
   const hash = window.location.hash;
-  if (hash && hash.includes("access_token=")) {
-    // The widget should handle this automatically via init().
-    // If after 2 seconds we still don't have a user, force a clean reload
-    // (strip the hash so we don't loop).
-    setTimeout(() => {
-      if (!getCurrentUser()) {
-        // Store a flag to avoid infinite loop
-        const retries = parseInt(sessionStorage.getItem("oauth_retries") || "0");
-        if (retries < 2) {
-          sessionStorage.setItem("oauth_retries", String(retries + 1));
-          // Reload without hash — the widget may need a fresh page
-          window.location.replace(window.location.pathname);
-        } else {
-          // Give up after 2 retries
-          sessionStorage.removeItem("oauth_retries");
-          console.error("OAuth callback failed after retries");
-          window.location.replace(window.location.pathname);
-        }
-      } else {
-        sessionStorage.removeItem("oauth_retries");
-      }
-    }, 2000);
-  } else {
+  if (!hash || !hash.includes("access_token=")) {
     sessionStorage.removeItem("oauth_retries");
+    return;
+  }
+
+  // If widget already picked it up, we're done
+  if (getCurrentUser()) {
+    history.replaceState(null, "", window.location.pathname);
+    sessionStorage.removeItem("oauth_retries");
+    return;
+  }
+
+  // Parse token params from hash
+  const params = {};
+  for (const pair of hash.slice(1).split("&")) {
+    const [k, v] = pair.split("=");
+    if (k) params[k] = decodeURIComponent(v || "");
+  }
+
+  if (!params.access_token) return;
+
+  // Decode JWT payload to extract user info
+  try {
+    const payload = JSON.parse(atob(params.access_token.split(".")[1]));
+    const meta = payload.user_metadata || {};
+    const appMeta = payload.app_metadata || {};
+
+    // Build GoTrue user object for localStorage
+    const gotrueUser = {
+      url: "/.netlify/identity",
+      token: {
+        access_token: params.access_token,
+        expires_in: params.expires_in || "3600",
+        refresh_token: params.refresh_token || "",
+        token_type: params.token_type || "bearer",
+        expires_at: Date.now() + (parseInt(params.expires_in || "3600") * 1000),
+      },
+      id: payload.sub,
+      aud: payload.aud || "",
+      role: payload.role || "",
+      email: payload.email,
+      confirmed_at: new Date().toISOString(),
+      app_metadata: appMeta,
+      user_metadata: meta,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    localStorage.setItem("gotrue.user", JSON.stringify(gotrueUser));
+
+    // Clean hash and reload — next boot will find the user in localStorage
+    window.location.replace(window.location.pathname);
+  } catch (e) {
+    console.error("Failed to parse OAuth callback:", e);
+    // Fallback: strip hash and reload
+    window.location.replace(window.location.pathname);
   }
 }
 
