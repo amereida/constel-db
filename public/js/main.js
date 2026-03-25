@@ -96,7 +96,9 @@ async function boot() {
 function initIdentity() {
   return new Promise((resolve) => {
     function setup(identity) {
-      identity.init();
+      identity.init({
+        APIUrl: "https://constel-amereida.netlify.app/.netlify/identity"
+      });
       initApi(identity);
 
       identity.on("login", async () => {
@@ -154,7 +156,9 @@ function showLoginScreen() {
       const retry = setInterval(() => {
         if (window.netlifyIdentity) {
           clearInterval(retry);
-          window.netlifyIdentity.init();
+          window.netlifyIdentity.init({
+            APIUrl: "https://constel-amereida.netlify.app/.netlify/identity"
+          });
           initApi(window.netlifyIdentity);
           window.netlifyIdentity.on("login", () => location.reload());
           window.netlifyIdentity.open("login");
