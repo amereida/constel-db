@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>con§tel</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gabarito:wght@400;500;600;700&family=Sorts+Mill+Goudy:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/tab-sources.css">
+  <link rel="stylesheet" href="css/tab-reader.css">
+  <link rel="stylesheet" href="css/tab-themes.css">
+</head>
+<body>
+  <!-- Shell principal -->
+  <header class="shell-header">
+    <h1 class="logo">con<span class="section-sign">§</span>tel <span class="version" id="appVersion">v</span></h1>
+    <div class="header-actions">
+      <span class="status-msg" id="statusMsg"></span>
+      <div class="dropdown" id="bibliotecaDropdown">
+        <button class="btn-sm" id="bibliotecaBtn">Biblioteca</button>
+        <div class="dropdown-menu" id="bibliotecaMenu">
+          <button class="dropdown-item" id="exportBtn">Exportar constelación (ZIP)</button>
+          <label class="dropdown-item">
+            Importar constelación (ZIP)
+            <input type="file" id="importFile" accept=".zip" hidden>
+          </label>
+          <label class="dropdown-item">
+            Concatenar biblioteca (ZIP)
+            <input type="file" id="mergeFile" accept=".zip" hidden>
+          </label>
+        </div>
+      </div>
+      <button class="btn-icon" id="themeToggle" title="Cambiar tema"><img src="icons/icons_mode-switch.svg" alt="Cambiar tema" width="20" height="20" style="filter: var(--icon-filter); opacity: 0.8"></button>
+    </div>
+  </header>
+
+  <!-- Barra de pestañas -->
+  <nav class="tabs-bar" role="tablist">
+    <button class="tab-btn active" data-tab="sources" role="tab" aria-selected="true">
+      <img src="icons/icons_library.svg" class="tab-icon" alt="" /> <span data-i18n="tab.sources">Fuentes</span>
+    </button>
+    <button class="tab-btn" data-tab="reader" role="tab" aria-selected="false">
+      <img src="icons/icons_section.svg" class="tab-icon" alt="" /> <span data-i18n="tab.reader">Lector</span>
+    </button>
+    <button class="tab-btn" data-tab="themes" role="tab" aria-selected="false">
+      <img src="icons/icons_map.svg" class="tab-icon" alt="" /> <span data-i18n="tab.map">Mapa</span>
+    </button>
+    <span class="tab-source-title" id="tabSourceTitle">
+      <span id="readerTitle"></span>
+      <button class="btn-icon marks-toggle" id="marksToggle" title="Mostrar/ocultar marcas">
+        <svg id="marksToggleIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
+          <path d="M17.7,13.5c0,2-1.6,3.7-3.7,3.7s-3.7-1.6-3.7-3.7,1.6-3.7,3.7-3.7,3.7,1.6,3.7,3.7"/>
+          <path d="M14,10.9c3.9,0,7.6,1.2,10.7,3.2-2.2-3.6-6.1-6.1-10.7-6.1s-8.5,2.4-10.7,6.1c3.1-2,6.7-3.2,10.7-3.2"/>
+          <path d="M21,17.8c-2.2.8-4.5,1.3-7,1.3s-4.8-.5-7-1.3c2,1.4,4.4,2.3,7,2.3s5-.8,7-2.3"/>
+          <path class="eye-glint" d="M16.7,12.3c0,.8-.7,1.5-1.5,1.5s-1.5-.7-1.5-1.5.7-1.5,1.5-1.5,1.5.7,1.5,1.5"/>
+        </svg>
+      </button>
+    </span>
+  </nav>
+
+  <!-- Paneles de contenido -->
+  <main class="tab-panels">
+    <section class="tab-panel active" id="panel-sources" role="tabpanel">
+      <div class="split-view" data-split="sources">
+        <div class="split-left" id="sourcesList">
+          <div class="corpus-search">
+            <input type="text" id="corpusSearchInput" placeholder="Buscar en todos los textos..." />
+          </div>
+          <div class="panel-content" id="sourcesListContent"></div>
+          <div class="search-results" id="corpusSearchResults" hidden></div>
+        </div>
+        <div class="split-handle" data-split="sources"></div>
+        <div class="split-right" id="sourcePreview">
+          <div class="panel-header">
+            <h2>Vista previa</h2>
+          </div>
+          <div class="panel-content" id="sourcePreviewContent">
+            <p class="placeholder">Selecciona un texto para ver su contenido</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-reader" role="tabpanel">
+      <div class="reader-layout">
+        <!-- Izquierda: glosa cronológica de conceptos -->
+        <div class="reader-gloss" id="readerGloss">
+          <div class="gloss-scroll" id="readerGlossList"></div>
+          <div class="gloss-footer">
+            <span class="badge" id="readerConceptCount">0</span> conceptos
+          </div>
+        </div>
+        <!-- Resizer handle -->
+        <div class="reader-resizer" id="readerResizer"></div>
+        <!-- Minimap vertical angosto -->
+        <div class="reader-minimap-strip" id="readerMinimap"></div>
+        <!-- Panel de detalle (aparece entre minimap y texto) -->
+        <div class="concept-detail-panel" id="conceptDetail" hidden>
+          <div class="concept-detail-header">
+            <input class="concept-detail-label" id="conceptDetailLabel" type="text" spellcheck="false" />
+            <button class="btn-icon" id="conceptDetailClose" title="Cerrar">✕</button>
+          </div>
+          <div class="concept-detail-excerpts" id="conceptDetailExcerpts"></div>
+          <div class="concept-detail-actions">
+            <button class="btn-icon btn-delete-concept" id="conceptDetailDelete" title="Eliminar concepto">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            </button>
+            <button class="btn-sm" id="conceptDetailAddExcerpt" data-i18n="reader.add_section">+ Agregar sección</button>
+          </div>
+          <!-- Confirm delete dialog -->
+          <div class="confirm-delete-overlay" id="confirmDeleteOverlay">
+            <div class="confirm-delete-dialog">
+              <p id="confirmDeleteMsg"></p>
+              <div class="confirm-delete-buttons">
+                <button class="btn-sm" id="confirmDeleteCancel">Cancelar</button>
+                <button class="btn-sm btn-confirm-delete" id="confirmDeleteOk">Eliminar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Derecha: texto -->
+        <div class="reader-text-panel" id="readerText">
+          <div class="panel-content reader-content" id="readerTextContent">
+            <p class="placeholder" data-i18n="reader.select_text">Selecciona un texto desde Fuentes para comenzar a leer</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-themes" role="tabpanel">
+      <div class="split-view" data-split="themes">
+        <div class="split-left" id="conceptMap">
+          <div class="panel-header map-toolbar">
+            <label class="map-control map-mode-switch" title="Modo de visualización">
+              <span class="mode-label" data-mode="2d">2D</span>
+              <input type="checkbox" id="mapModeToggle">
+              <span class="mode-slider"></span>
+              <span class="mode-label" data-mode="3d">3D</span>
+            </label>
+            <label class="map-control" title="Umbral: mostrar links con ≥ N secciones compartidas">
+              <span class="control-label">≥</span>
+              <input type="range" id="mapThresholdSlider" min="1" max="5" value="1" step="1">
+              <span class="control-value" id="mapThresholdValue">1</span>
+            </label>
+            <label class="map-control" title="Fuerza de atracción entre nodos conectados">
+              <span class="control-label">Fuerza</span>
+              <input type="range" id="mapStrengthSlider" min="1" max="30" value="5" step="1">
+            </label>
+            <label class="map-control" title="Mostrar aristas">
+              <input type="checkbox" id="mapEdgeToggle" checked>
+              <span class="toggle-label">Aristas</span>
+            </label>
+            <button class="btn-icon map-export" id="mapExportBtn" title="Descargar mapa">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+          </div>
+          <div class="panel-content map-content" id="mapContainer"></div>
+        </div>
+        <div class="split-handle" data-split="themes"></div>
+        <div class="split-right" id="themeDetail">
+          <div class="panel-header">
+            <h2 id="themeDetailTitle">Detalle</h2>
+          </div>
+          <div class="panel-content" id="themeDetailContent">
+            <p class="placeholder">Selecciona un concepto o tema en el mapa</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Popup para crear excerpts (oculto por defecto) -->
+  <div class="excerpt-popup" id="excerptPopup" hidden>
+    <div class="popup-content">
+      <input type="text" id="conceptInput" placeholder="Concepto [a]..." autocomplete="off">
+      <div class="autocomplete-dropdown" id="autocompleteDropdown" hidden></div>
+      <div class="popup-actions">
+        <button class="btn-primary btn-sm" id="createExcerpt">Marcar §</button>
+        <button class="btn-sm" id="cancelExcerpt" data-i18n="sources.cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- D3.js + JSZip + Three.js + 3D Force Graph via CDN (sin build step) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.79.1/dist/3d-force-graph.min.js"></script>
+  <!-- Módulos JS -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

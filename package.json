@@ -1,0 +1,35 @@
+{
+  "name": "constel-db",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "con§tel — herramienta colaborativa de análisis temático de corpus textuales",
+  "private": true,
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo 'No build step needed'",
+    "version": "node -e \"import('fs').then(fs=>fs.writeFileSync('public/version.json',JSON.stringify({version:JSON.parse(fs.readFileSync('package.json','utf8')).version})+'\\n'))\""
+  },
+  "keywords": [
+    "thematic-analysis",
+    "qualitative-research",
+    "corpus",
+    "annotation",
+    "concept-mapping",
+    "collaborative"
+  ],
+  "author": "Herbert Spencer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eadpucv/constel-db.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@netlify/functions": "^2.0.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  }
+}

@@ -1,0 +1,653 @@
+/* Tab 2: Lector */
+
+/* ── Layout: gloss | resizer | minimap | [detail] | texto ────────────── */
+.reader-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Glosa cronológica (izquierda) ───────────────────────────────────── */
+.reader-gloss {
+  width: 280px;
+  min-width: 160px;
+  max-width: 50vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: none;
+  flex-shrink: 0;
+}
+
+.gloss-scroll {
+  flex: 1;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.gloss-footer {
+  flex-shrink: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.6875rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+/* Gloss list: normal flow, no absolute positioning */
+.gloss-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-xs) 0;
+}
+
+.gloss-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 3px var(--space-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--ink);
+  border-left: 3px solid transparent;
+}
+
+.gloss-item:hover {
+  background: var(--surface-alt);
+}
+
+.gloss-item.selected {
+  background: var(--mark-bg);
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.gloss-item.selected .gloss-label {
+  font-weight: 600;
+}
+
+/* Hierarchy: level 0 = prominent, level 2 = subdued */
+.gloss-item.level-0 {
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  padding-top: var(--space-xs);
+  padding-bottom: var(--space-xs);
+}
+
+.gloss-item.level-1 {
+  padding-left: calc(var(--space-sm) + 1em);
+  font-weight: 500;
+}
+
+.gloss-item.level-2 {
+  padding-left: calc(var(--space-sm) + 2em);
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.gloss-item.level-2:hover,
+.gloss-item.level-2.selected {
+  color: var(--accent);
+}
+
+.gloss-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gloss-count {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  background: var(--surface-alt);
+  padding: 0 5px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.gloss-item.selected .gloss-count {
+  background: var(--accent);
+  color: white;
+}
+
+/* ── Resizer ─────────────────────────────────────────────────────────── */
+.reader-resizer {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.reader-resizer:hover,
+.reader-resizer.dragging {
+  background: var(--accent);
+}
+
+.reader-resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  border-radius: 1px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+.reader-resizer:hover::after,
+.reader-resizer.dragging::after {
+  background: white;
+  opacity: 1;
+}
+
+/* ── Minimap vertical ────────────────────────────────────────────────── */
+.reader-minimap-strip {
+  width: 32px;
+  flex-shrink: 0;
+  position: relative;
+  background: var(--surface-alt);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.reader-minimap-strip .minimap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.minimap-band {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  min-height: 2px;
+  border-radius: 1px;
+  opacity: 0.7;
+}
+
+.minimap-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(45, 106, 90, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.minimap-stats {
+  position: absolute;
+  bottom: var(--space-xs);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.5625rem;
+  color: var(--muted);
+  gap: 2px;
+  pointer-events: none;
+}
+
+/* ── Concept detail panel (between minimap and text) ─────────────────── */
+.concept-detail-panel {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+  position: relative;
+}
+
+.concept-detail-panel[hidden] {
+  display: none !important;
+}
+
+.concept-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.concept-detail-label {
+  flex: 1;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  padding: var(--space-xs) 0;
+  outline: none;
+  font-family: var(--font);
+}
+
+.concept-detail-label:focus {
+  border-bottom-color: var(--accent);
+}
+
+.concept-detail-excerpts {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* ── Excerpt group headers ────────────────────────────────────────────── */
+.excerpt-group-header {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: var(--space-sm) var(--space-sm) var(--space-xs);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.excerpt-group-header.current {
+  color: var(--accent);
+}
+
+.excerpt-group-header.other {
+  margin-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-sm);
+}
+
+.excerpt-group-count {
+  font-size: 0.625rem;
+  background: var(--surface-alt);
+  padding: 0 5px;
+  border-radius: 8px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.excerpt-group-header.current .excerpt-group-count {
+  background: var(--accent);
+  color: white;
+}
+
+/* ── Excerpt items ───────────────────────────────────────────────────── */
+.concept-detail-excerpt {
+  padding: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  background: var(--surface-alt);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+  cursor: pointer;
+  position: relative;
+}
+
+.concept-detail-excerpt.local {
+  border-left-color: var(--accent);
+}
+
+.concept-detail-excerpt.other-source {
+  border-left-color: var(--muted);
+  opacity: 0.75;
+}
+
+.concept-detail-excerpt.other-source:hover {
+  opacity: 1;
+}
+
+.concept-detail-excerpt:hover {
+  background: var(--mark-bg);
+}
+
+.concept-detail-excerpt .excerpt-source {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.concept-detail-excerpt .excerpt-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.concept-detail-excerpt:hover .excerpt-remove {
+  opacity: 1;
+}
+
+.concept-detail-excerpt .excerpt-remove:hover {
+  background: var(--danger, #c44);
+  color: white;
+}
+
+.concept-detail-actions {
+  padding: var(--space-sm);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.btn-delete-concept {
+  color: var(--muted);
+  opacity: 0.5;
+  transition: opacity 0.2s, color 0.2s;
+  padding: 4px;
+}
+
+.btn-delete-concept:hover {
+  opacity: 1;
+  color: var(--danger, #c44);
+}
+
+/* ── Confirm delete dialog ── */
+.confirm-delete-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-delete-overlay.visible {
+  display: flex;
+}
+
+.confirm-delete-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  max-width: 320px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  text-align: center;
+}
+
+.confirm-delete-dialog p {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.confirm-delete-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.btn-confirm-delete {
+  background: var(--danger, #c44);
+  color: white;
+  border-color: var(--danger, #c44);
+}
+
+.btn-confirm-delete:hover {
+  background: #a33;
+}
+
+/* ── Texto del lector (derecha) ──────────────────────────────────────── */
+.reader-text-panel {
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.reader-content {
+  font-family: var(--font-reading);
+  font-size: 1.125rem;
+  line-height: 1.8;
+  padding: var(--space-lg) var(--space-xl);
+  max-width: 72ch;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ── Excerpts marcados ───────────────────────────────────────────────── */
+.reader-content mark {
+  background: var(--mark-bg);
+  color: var(--ink);
+  border-bottom: 2px solid var(--accent);
+  padding: 1px 2px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background var(--duration) var(--ease), border-color var(--duration) var(--ease);
+  text-decoration: none;
+}
+
+/* Marks hidden mode — !important needed to override inline styles */
+.reader-content.marks-hidden mark {
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+  cursor: text;
+  pointer-events: none;
+}
+
+.reader-content mark:hover {
+  background: var(--mark-bg-hover);
+}
+
+.reader-content mark.highlight-active {
+  background: var(--mark-bg-hover) !important;
+  outline: 2px solid var(--accent);
+  animation: flash-new 1.5s ease-out;
+}
+
+@keyframes flash-new {
+  0% { outline-width: 4px; background: var(--mark-bg-hover) !important; }
+  50% { outline-width: 2px; }
+  100% { outline-width: 0px; }
+}
+
+/* ── Excerpt tooltip ─────────────────────────────────────────────────── */
+.excerpt-tooltip {
+  position: fixed;
+  z-index: 1100;
+  display: none;
+  align-items: center;
+  gap: var(--space-xs);
+  background: var(--surface);
+  color: var(--ink);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.tooltip-concepts {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.tooltip-concept {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.tooltip-concept:hover {
+  text-decoration: underline;
+}
+
+.tooltip-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: var(--space-xs);
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-xs);
+}
+
+.tooltip-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.tooltip-btn:hover {
+  opacity: 1;
+  color: var(--ink);
+}
+
+.tooltip-btn.tooltip-delete {
+  opacity: 0.5;
+}
+
+.tooltip-btn.tooltip-delete:hover {
+  opacity: 1;
+  color: var(--danger, #c44);
+}
+
+/* ── Confirm delete toast (inline en tooltip) ── */
+.excerpt-tooltip.confirming .tooltip-concepts,
+.excerpt-tooltip.confirming .tooltip-actions {
+  display: none;
+}
+
+.tooltip-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.tooltip-confirm-msg {
+  color: var(--ink);
+}
+
+.tooltip-confirm-yes {
+  background: transparent;
+  border: none;
+  color: var(--danger, #c44);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  padding: 2px 6px;
+  border-radius: var(--radius);
+}
+
+.tooltip-confirm-yes:hover {
+  background: var(--danger, #c44);
+  color: white;
+}
+
+.tooltip-confirm-no {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  padding: 2px 6px;
+}
+
+/* ── Modo "agregar sección" ──────────────────────────────────────────── */
+.reader-content.add-section-mode {
+  cursor: text;
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.reader-content.add-section-mode::selection,
+.reader-content.add-section-mode *::selection {
+  background: rgba(45, 106, 90, 0.3);
+}
+
+.reader-content mark.temp-highlight {
+  background: rgba(45, 106, 90, 0.25);
+  border-bottom: 2px dashed var(--accent);
+  border-radius: 2px;
+  animation: pulse-highlight 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-highlight {
+  0%, 100% { background: rgba(45, 106, 90, 0.25); }
+  50% { background: rgba(45, 106, 90, 0.15); }
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────── */
+.excerpt-created-toast {
+  position: fixed;
+  bottom: var(--space-lg);
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  background: var(--accent);
+  color: white;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  z-index: 1001;
+  opacity: 0;
+  animation: toast-in-out 1.8s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes toast-in-out {
+  0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  75% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+}
+
+/* ── Search flash (scroll to char position) ─────────────────────────── */
+.search-flash {
+  background: var(--accent);
+  color: white;
+  border-radius: 2px;
+  padding: 1px 2px;
+  animation: search-pulse 2s ease-out forwards;
+}
+
+@keyframes search-pulse {
+  0% { background: var(--accent); color: white; }
+  70% { background: var(--accent); color: white; }
+  100% { background: transparent; color: inherit; }
+}

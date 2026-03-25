@@ -1,0 +1,225 @@
+/* Tab 1: Fuentes */
+
+/* ── Buscador del corpus ──────────────────────────────────────────────── */
+.corpus-search {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.corpus-search input {
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.search-results[hidden] {
+  display: none;
+}
+
+.search-summary {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  padding: var(--space-xs) 0 var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-sm);
+}
+
+.search-result {
+  padding: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  background: var(--surface-alt);
+  border-radius: var(--radius);
+  cursor: pointer;
+  border-left: 3px solid var(--accent);
+  transition: background 0.15s;
+}
+
+.search-result:hover {
+  background: var(--mark-bg-hover);
+}
+
+.search-result-text {
+  font-family: var(--font-reading);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.search-result-text mark {
+  background: var(--mark-bg-hover);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+.search-result-source {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── Lista de fuentes ─────────────────────────────────────────────────── */
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.source-card {
+  cursor: pointer;
+}
+
+.source-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.source-card h3 {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  margin-bottom: var(--space-xs);
+}
+
+.source-edit-btn {
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--duration) var(--ease);
+}
+
+.source-card:hover .source-edit-btn {
+  opacity: 1;
+}
+
+.source-author {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  margin-bottom: var(--space-xs);
+}
+
+.source-meta {
+  display: flex;
+  gap: var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+
+.source-meta .stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.source-progress {
+  margin-top: var(--space-sm);
+  height: 3px;
+  background: var(--surface-alt);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.source-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.3s var(--ease);
+}
+
+/* Vista previa */
+#sourcePreviewContent {
+  font-family: var(--font-reading);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  max-width: 72ch;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.preview-truncated {
+  color: var(--muted);
+  font-style: italic;
+  margin-top: var(--space-md);
+  font-family: var(--font);
+}
+
+/* ── Modal de edición ─────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: var(--space-lg);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.modal-header h3 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.modal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modal-form label span {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.modal-form hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-xs) 0;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-sm);
+}
+
+.modal-actions-right {
+  display: flex;
+  gap: var(--space-sm);
+}

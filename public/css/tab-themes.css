@@ -1,0 +1,455 @@
+/* Tab 3: Mapa & Temas */
+
+/* ── Map toolbar ──────────────────────────────────────────────────────── */
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.control-label {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.control-value {
+  font-size: var(--font-size-sm);
+  color: var(--ink);
+  font-weight: 600;
+  min-width: 1em;
+  text-align: center;
+}
+
+.map-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.map-control input[type="range"] {
+  width: 100px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.map-control input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.toggle-label {
+  user-select: none;
+}
+
+.map-export {
+  margin-left: auto;
+  color: var(--muted);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.map-export:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* iOS-style 2D/3D toggle switch */
+.map-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.map-mode-switch .mode-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: color 0.2s;
+}
+
+.map-mode-switch .mode-label[data-mode="2d"] {
+  color: var(--accent);
+}
+
+.map-mode-switch input[type="checkbox"]:checked ~ .mode-label[data-mode="3d"] {
+  color: var(--accent);
+}
+
+.map-mode-switch input[type="checkbox"]:checked ~ .mode-label[data-mode="2d"],
+.map-mode-switch input[type="checkbox"]:checked + .mode-slider + .mode-label[data-mode="2d"] {
+  color: var(--muted);
+}
+
+/* The labels are siblings: 2D label is before the checkbox, so use :has */
+.map-mode-switch:has(input:checked) .mode-label[data-mode="2d"] {
+  color: var(--muted);
+}
+
+.map-mode-switch:has(input:checked) .mode-label[data-mode="3d"] {
+  color: var(--accent);
+}
+
+.map-mode-switch:has(input:not(:checked)) .mode-label[data-mode="2d"] {
+  color: var(--accent);
+}
+
+.map-mode-switch:has(input:not(:checked)) .mode-label[data-mode="3d"] {
+  color: var(--muted);
+}
+
+.map-mode-switch input[type="checkbox"] {
+  display: none;
+}
+
+.mode-slider {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background: var(--border);
+  border-radius: 9px;
+  transition: background 0.2s;
+}
+
+.mode-slider::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
+
+.map-mode-switch input[type="checkbox"]:checked + .mode-slider {
+  background: var(--accent);
+}
+
+.map-mode-switch input[type="checkbox"]:checked + .mode-slider::after {
+  transform: translateX(16px);
+}
+
+/* Contenedor del mapa D3 / 3D */
+.map-content {
+  padding: 0 !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.map-content svg {
+  width: 100%;
+  height: 100%;
+}
+
+.map-content canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Nodos del grafo (modo título) */
+.map-node text {
+  fill: var(--ink);
+  pointer-events: all;
+  text-anchor: middle;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.map-link {
+  stroke: var(--muted);
+  stroke-opacity: 0.15;
+}
+
+.map-link.strong {
+  stroke: var(--accent);
+  stroke-opacity: 0.4;
+}
+
+.map-link.proximity {
+  stroke: var(--muted);
+  stroke-opacity: 0.12;
+}
+
+/* Panel derecho: detalle del tema */
+.theme-section {
+  margin-bottom: var(--space-lg);
+}
+
+.theme-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.theme-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.theme-section-header h3 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.theme-title-input {
+  flex: 1;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  padding: var(--space-xs) 0;
+  outline: none;
+  font-family: var(--font);
+}
+
+.theme-title-input:focus {
+  border-bottom-color: var(--accent);
+}
+
+.theme-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
+}
+
+/* Concept tags */
+.concept-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid;
+  border-radius: 12px;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+
+.concept-tag:hover {
+  filter: brightness(1.1);
+}
+
+.concept-tag.removable .tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.625rem;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-left: 2px;
+  padding: 0;
+}
+
+.concept-tag.removable:hover .tag-remove {
+  opacity: 0.6;
+}
+
+.concept-tag.removable .tag-remove:hover {
+  opacity: 1;
+  background: var(--danger, #c44);
+  color: white;
+}
+
+.concept-tag.addable {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.concept-tag.addable:hover {
+  opacity: 1;
+  border-style: solid;
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.ungrouped-picker {
+  margin-bottom: 0;
+}
+
+/* Editor de notas */
+.note-editor {
+  margin-top: var(--space-md);
+}
+
+.note-editor label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-xs);
+}
+
+.note-editor textarea {
+  width: 100%;
+  min-height: 200px;
+  max-height: 60vh;
+  resize: vertical;
+  font-family: var(--font-reading);
+  font-size: 1rem;
+  line-height: 1.7;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.note-editor textarea:focus {
+  border-color: var(--accent);
+}
+
+/* ── Toggle conceptos ─────────────────────────────────────────────────── */
+.btn-toggle-concepts {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-family: var(--font);
+}
+
+.btn-toggle-concepts:hover {
+  text-decoration: underline;
+}
+
+/* ── Chevron icons ────────────────────────────────────────────────────── */
+.chevron-icon {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  filter: var(--icon-filter, none);
+}
+
+.btn-toggle-concepts:hover .chevron-icon,
+.btn-icon-only:hover .chevron-icon {
+  opacity: 1;
+}
+
+.btn-icon-only {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Concept label en excerpt items del tema ──────────────────────────── */
+.excerpt-concept-label {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.theme-excerpts-section {
+  margin-top: var(--space-md);
+}
+
+/* Lista de excerpts en el detalle */
+.excerpt-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.excerpt-item {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+
+.excerpt-item:hover {
+  background: var(--mark-bg);
+}
+
+.excerpt-quote {
+  font-family: var(--font-reading);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.excerpt-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.excerpt-meta strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.excerpt-meta-arrow {
+  color: var(--muted);
+}
+
+.excerpt-meta-source {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.excerpt-source {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  margin-top: var(--space-xs);
+}
+
+/* Grupo sin tema */
+.ungrouped-section {
+  border-top: 1px dashed var(--border);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+/* Nuevo tema */
+.new-theme-form {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.new-theme-form input {
+  flex: 1;
+}
