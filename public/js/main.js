@@ -120,9 +120,9 @@ function showLoginScreen() {
   app.prepend(loginEl);
 
   // Hide the main UI until logged in
-  document.querySelector(".app-header")?.style.setProperty("display", "none");
-  document.querySelector(".app-tabs")?.style.setProperty("display", "none");
-  document.querySelector(".app-body")?.style.setProperty("display", "none");
+  document.querySelector(".shell-header")?.style.setProperty("display", "none");
+  document.querySelector(".tabs-bar")?.style.setProperty("display", "none");
+  document.querySelector(".tab-panels")?.style.setProperty("display", "none");
 
   loginEl.querySelector("#loginBtn")?.addEventListener("click", () => {
     if (window.netlifyIdentity) {
