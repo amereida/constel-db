@@ -13,13 +13,21 @@ import { applyTranslations, t } from "./i18n.js";
 
 // ── Arranque ────────────────────────────────────────────────────────────────
 
+// Capture OAuth hash BEFORE anything else can consume it
+const _oauthHash = window.location.hash.includes("access_token=") ? window.location.hash : null;
+
 async function boot() {
   applyTranslations();
   showStatus(t("reader.loading"));
 
-  // 1. Init Netlify Identity + handle OAuth callback
+  // 1. Handle OAuth callback FIRST (before widget can eat the hash)
+  if (_oauthHash) {
+    handleOAuthCallback(_oauthHash);
+    return; // handleOAuthCallback will reload the page
+  }
+
+  // 2. Init Netlify Identity
   await initIdentity();
-  handleOAuthCallback();
 
   // 2. Check auth (no longer blocks the app)
   const user = getCurrentUser();
@@ -132,20 +140,7 @@ function initIdentity() {
  * it often fails to process the token. We parse it ourselves,
  * store it in localStorage in GoTrue format, and reload.
  */
-function handleOAuthCallback() {
-  const hash = window.location.hash;
-  if (!hash || !hash.includes("access_token=")) {
-    sessionStorage.removeItem("oauth_retries");
-    return;
-  }
-
-  // If widget already picked it up, we're done
-  if (getCurrentUser()) {
-    history.replaceState(null, "", window.location.pathname);
-    sessionStorage.removeItem("oauth_retries");
-    return;
-  }
-
+function handleOAuthCallback(hash) {
   // Parse token params from hash
   const params = {};
   for (const pair of hash.slice(1).split("&")) {
