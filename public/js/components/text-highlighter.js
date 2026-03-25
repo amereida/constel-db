@@ -1,180 +1,159 @@
-// text-highlighter.js — renderiza Markdown como HTML con marks de excerpts
-// Pipeline: Markdown source → marked → HTML → inject marks via DOM text nodes
+// text-highlighter.js — renderiza Markdown como HTML con milestones de excerpts
+// Pipeline: Markdown source (con <!-- §b/§e --> milestones) → marked → HTML con <mark>
 
 import { state, getExcerptsForSource, removeExcerpt } from "../state.js";
 import { marked } from "../lib/marked.esm.js";
 
-// Configure marked for literary texts
+// ── Configure marked ─────────────────────────────────────────────────────
+
 marked.setOptions({
   breaks: true,      // line breaks → <br>
   gfm: true,
   headerIds: false,
 });
 
-// Plain text extracted from rendered HTML (for offset calculations)
-let _plainText = "";
+/**
+ * Preprocess source text before marked.parse():
+ * - Replace leading spaces (4+) with non-breaking spaces to prevent
+ *   markdown's "indented code block" detection. Literary texts use
+ *   indentation for poetry, not for code.
+ */
+function preprocessSource(source) {
+  // 1. Convert ```poem...``` pairs to :::poem...::: so marked's fences
+  //    tokenizer ignores them. Our poemBlock extension handles :::poem.
+  let result = source.replace(/^```poem\n([\s\S]*?)\n```/gm, (match, inner) => {
+    return `:::poem\n${inner}\n:::`;
+  });
+  // 2. Replace leading 4+ spaces with nbsp to prevent indented code blocks
+  result = result.replace(/^( {4,})/gm, (m) => "\u00A0".repeat(m.length));
+  return result;
+}
 
-// Tooltip singleton
+// ── Milestone extensions ─────────────────────────────────────────────────
+// Milestones in the markdown source: <!-- §b excerpt_id --> ... <!-- §e excerpt_id -->
+// These are parsed as inline tokens and rendered as <mark> open/close tags.
+
+// ```poem blocks MUST be registered first so they take priority over
+// marked's built-in fences tokenizer for ```poem specifically.
+marked.use({
+  extensions: [
+    {
+      name: "poemBlock",
+      level: "block",
+      start(src) {
+        return src.match(/^:::poem/m)?.index;
+      },
+      tokenizer(src) {
+        const match = src.match(/^:::poem\n([\s\S]*?)\n:::/);
+        if (match) {
+          const token = {
+            type: "poemBlock",
+            raw: match[0],
+            text: match[1],
+            tokens: [],
+          };
+          this.lexer.inlineTokens(token.text, token.tokens);
+          return token;
+        }
+      },
+      renderer(token) {
+        return `<div class="poem">${this.parser.parseInline(token.tokens)}</div>`;
+      },
+    },
+  ],
+});
+
+marked.use({
+  extensions: [
+    {
+      name: "milestoneBegin",
+      level: "inline",
+      start(src) {
+        return src.indexOf("<!-- §b ");
+      },
+      tokenizer(src) {
+        const match = src.match(/^<!-- §b (\S+) -->/);
+        if (match) {
+          return {
+            type: "milestoneBegin",
+            raw: match[0],
+            id: match[1],
+          };
+        }
+      },
+      renderer(token) {
+        const exc = state.excerpts[token.id];
+        const color = exc ? getExcerptColor(exc) : null;
+        const labels = exc
+          ? exc.conceptIds.map(cid => state.concepts[cid]?.label).filter(Boolean).join(", ")
+          : "";
+        // If color is a hex value, append alpha. Otherwise use CSS color-mix for var() colors.
+        let bg;
+        if (color && color.startsWith("#")) {
+          bg = `${color}26`;
+        } else {
+          bg = `color-mix(in srgb, var(--accent) 15%, transparent)`;
+        }
+        return `<mark data-excerpt="${escapeHtml(token.id)}" data-concepts="${escapeHtml(labels)}" style="--mark-color:${color || "var(--accent)"};background:${bg}">`;
+      },
+    },
+    {
+      name: "milestoneEnd",
+      level: "inline",
+      start(src) {
+        return src.indexOf("<!-- §e ");
+      },
+      tokenizer(src) {
+        const match = src.match(/^<!-- §e (\S+) -->/);
+        if (match) {
+          return {
+            type: "milestoneEnd",
+            raw: match[0],
+            id: match[1],
+          };
+        }
+      },
+      renderer() {
+        return "</mark>";
+      },
+    },
+  ],
+});
+
+// ── Tooltip singleton ────────────────────────────────────────────────────
+
 let _tooltip = null;
 let _tooltipTimeout = null;
 
+// ── Current source raw text (for popup offset search) ────────────────────
+
+let _currentSourceRaw = "";
+
 /**
- * Returns the plain text of the currently rendered source.
- * Offsets are calculated against this string.
+ * Returns the raw markdown source of the currently rendered text.
+ * Used by popup.js to find selected text in the source for milestone insertion.
  */
-export function getRenderedSourceText() {
-  return _plainText;
+export function getCurrentSourceRaw() {
+  return _currentSourceRaw;
 }
 
 /**
- * Render a source with Markdown → HTML + excerpt highlights.
+ * Render a source with Markdown + milestones → HTML with <mark> elements.
  * @param {HTMLElement} container
- * @param {string} source - raw content (Markdown or plain text)
+ * @param {string} source - raw markdown content (with milestone comments)
  * @param {string} sourceId
  * @param {Function} onExcerptClick - (excerptId) => void
  */
 export function renderHighlightedText(container, source, sourceId, onExcerptClick) {
-  // 1. Render Markdown → HTML
-  const html = marked.parse(source);
+  _currentSourceRaw = source;
+
+  // Preprocess to prevent indented code blocks, then parse
+  const html = marked.parse(preprocessSource(source));
   container.innerHTML = html;
   container.classList.add("rendered-markdown");
 
-  // 2. Extract plain text from rendered HTML (this is our offset reference)
-  _plainText = extractPlainText(container);
-
-  // 3. Get and sort excerpts
-  const excerpts = getExcerptsForSource(sourceId)
-    .filter(e => typeof e.start === "number" && typeof e.end === "number")
-    .sort((a, b) => a.start - b.start);
-
-  if (!excerpts.length) return;
-
-  // 4. Build text-node map: array of { node, startOffset, endOffset }
-  const textMap = buildTextNodeMap(container);
-
-  // 5. Insert marks by wrapping text node ranges
-  for (const exc of excerpts) {
-    const color = getExcerptColor(exc);
-    const conceptLabels = exc.conceptIds
-      .map(cid => state.concepts[cid]?.label)
-      .filter(Boolean)
-      .join(", ");
-
-    wrapRange(textMap, exc.start, exc.end, exc.id, color, conceptLabels);
-  }
-
-  // 6. Attach event listeners to marks
+  // Attach event listeners to all marks
   attachMarkListeners(container, onExcerptClick);
-}
-
-// ── Text node mapping ─────────────────────────────────────────────────────
-
-/**
- * Extract plain text from a container, matching how we count offsets.
- * Adds newlines for block elements to keep text positions meaningful.
- */
-function extractPlainText(container) {
-  let text = "";
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) {
-    text += walker.currentNode.textContent;
-  }
-  return text;
-}
-
-/**
- * Build a map of text nodes with their character offset ranges.
- * Returns [{ node, start, end }] where start/end are char offsets in plain text.
- */
-function buildTextNodeMap(container) {
-  const map = [];
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let offset = 0;
-  while (walker.nextNode()) {
-    const node = walker.currentNode;
-    const len = node.textContent.length;
-    map.push({ node, start: offset, end: offset + len });
-    offset += len;
-  }
-  return map;
-}
-
-/**
- * Wrap a character range [start, end) in <mark> elements across text nodes.
- * Handles ranges that span multiple text nodes by splitting and wrapping each.
- */
-function wrapRange(textMap, start, end, excerptId, color, conceptLabels) {
-  // Find all text nodes that overlap with [start, end)
-  for (let i = 0; i < textMap.length; i++) {
-    const entry = textMap[i];
-    if (entry.end <= start || entry.start >= end) continue;
-
-    const node = entry.node;
-    const nodeStart = entry.start;
-    const localStart = Math.max(0, start - nodeStart);
-    const localEnd = Math.min(node.textContent.length, end - nodeStart);
-
-    if (localStart >= localEnd) continue;
-
-    // Split the text node if needed
-    // Before | Marked | After
-    const parent = node.parentNode;
-    if (!parent) continue;
-
-    // Don't nest marks inside marks
-    if (parent.closest && parent.closest("mark[data-excerpt]")) continue;
-
-    const fullText = node.textContent;
-
-    // Create fragments
-    const before = fullText.slice(0, localStart);
-    const marked_text = fullText.slice(localStart, localEnd);
-    const after = fullText.slice(localEnd);
-
-    // Build new nodes
-    const frag = document.createDocumentFragment();
-
-    if (before) {
-      const beforeNode = document.createTextNode(before);
-      frag.appendChild(beforeNode);
-    }
-
-    const mark = document.createElement("mark");
-    mark.dataset.excerpt = excerptId;
-    mark.dataset.concepts = conceptLabels;
-    mark.style.setProperty("--mark-color", color);
-    mark.style.borderBottomColor = color;
-    mark.style.background = color + "20";
-    mark.textContent = marked_text;
-    frag.appendChild(mark);
-
-    if (after) {
-      const afterNode = document.createTextNode(after);
-      frag.appendChild(afterNode);
-    }
-
-    parent.replaceChild(frag, node);
-
-    // Update the textMap for subsequent excerpts
-    // Remove old entry and insert new ones
-    const newEntries = [];
-    let pos = nodeStart;
-    if (before) {
-      // find the before text node (first child we inserted)
-      newEntries.push({ node: mark.previousSibling || frag.firstChild, start: pos, end: pos + before.length });
-      pos += before.length;
-    }
-    // the mark's text node
-    newEntries.push({ node: mark.firstChild, start: pos, end: pos + marked_text.length });
-    pos += marked_text.length;
-    if (after) {
-      newEntries.push({ node: mark.nextSibling, start: pos, end: pos + after.length });
-    }
-
-    textMap.splice(i, 1, ...newEntries);
-    // Adjust loop index since we inserted entries
-    i += newEntries.length - 1;
-  }
 }
 
 // ── Mark event listeners ──────────────────────────────────────────────────
@@ -287,6 +266,98 @@ function hideExcerptTooltip() {
   }
 }
 
+// ── Milestone helpers (exported for use by other modules) ────────────────
+
+/**
+ * Insert milestone comments around a text range in the markdown source.
+ * @param {string} source - raw markdown
+ * @param {string} selectedText - the text to wrap
+ * @param {string} excerptId - the excerpt ID for the milestones
+ * @returns {string|null} - updated source, or null if text not found
+ */
+export function insertMilestones(source, selectedText, excerptId) {
+  // Strip existing milestones for clean search
+  const cleanSource = source.replace(/<!-- §[be] \S+ -->/g, "");
+
+  // Build a set of real fenced code block ranges (positions to avoid).
+  // Exclude ```poem blocks since those support milestones.
+  const fencedRanges = [];
+  const fencedRe = /^(`{3,})([^\n]*)\n[\s\S]*?\n\1/gm;
+  let fm;
+  while ((fm = fencedRe.exec(cleanSource)) !== null) {
+    const lang = fm[2].trim();
+    if (lang === "poem") continue; // poem blocks are markable
+    fencedRanges.push({ start: fm.index, end: fm.index + fm[0].length });
+  }
+
+  function isInsideFenced(pos) {
+    return fencedRanges.some(r => pos >= r.start && pos < r.end);
+  }
+
+  // Find the text, skipping matches inside fenced blocks
+  let searchFrom = 0;
+  let idx = -1;
+  while (true) {
+    idx = cleanSource.indexOf(selectedText, searchFrom);
+    if (idx === -1) return null;
+    if (!isInsideFenced(idx)) break; // found outside fenced block
+    searchFrom = idx + 1;
+  }
+
+  // Map clean index back to original source position
+  const milestoneRe = /<!-- §[be] \S+ -->/g;
+  let match;
+  const milestones = [];
+  while ((match = milestoneRe.exec(source)) !== null) {
+    milestones.push({ start: match.index, len: match[0].length });
+  }
+
+  let ci = 0; // clean index
+  let oi = 0; // original index
+  let mi = 0; // milestone index
+  let startOrig = -1;
+  let endOrig = -1;
+
+  while (oi < source.length && ci <= idx + selectedText.length) {
+    if (mi < milestones.length && oi === milestones[mi].start) {
+      oi += milestones[mi].len;
+      mi++;
+      continue;
+    }
+
+    if (ci === idx) startOrig = oi;
+    if (ci === idx + selectedText.length) {
+      endOrig = oi;
+      break;
+    }
+
+    ci++;
+    oi++;
+  }
+
+  if (startOrig === -1) return null;
+  if (endOrig === -1) endOrig = oi;
+
+  const before = source.slice(0, startOrig);
+  const text = source.slice(startOrig, endOrig);
+  const after = source.slice(endOrig);
+
+  return `${before}<!-- §b ${excerptId} -->${text}<!-- §e ${excerptId} -->${after}`;
+}
+
+/**
+ * Remove milestone comments for a given excerpt ID from the source.
+ * @param {string} source - raw markdown with milestones
+ * @param {string} excerptId - the excerpt ID to remove
+ * @returns {string} - cleaned source
+ */
+export function removeMilestones(source, excerptId) {
+  const escaped = excerptId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return source
+    .replace(new RegExp(`<!-- §b ${escaped} -->`, "g"), "")
+    .replace(new RegExp(`<!-- §e ${escaped} -->`, "g"), "");
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function getExcerptColor(excerpt) {
@@ -300,7 +371,8 @@ function getExcerptColor(excerpt) {
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /**

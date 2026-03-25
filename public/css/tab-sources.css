@@ -253,6 +253,17 @@
   flex-shrink: 0;
 }
 
+/* In expanded modal: sticky action bar at bottom */
+.modal-box-lg .modal-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  padding: var(--space-md) 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 1;
+}
+
 .modal-actions-right {
   display: flex;
   gap: var(--space-sm);

@@ -193,51 +193,57 @@ export async function getSourceContent(id) {
 
 // ── CRUD: Excerpts ──────────────────────────────────────────────────────────
 
-export async function addExcerpt({ sourceId, text, start, end, conceptIds }) {
-  // Optimistic: show immediately with temp ID
-  const tempId = `_tmp_${Date.now()}`;
-  const optimistic = {
-    id: tempId,
-    sourceId,
-    source_id: sourceId,
-    text,
-    start,
-    end,
-    start_pos: start,
-    end_pos: end,
-    conceptIds: conceptIds || [],
-    concept_ids: conceptIds || [],
-    createdBy: null,
-    _optimistic: true,
-  };
-  state.excerpts[tempId] = optimistic;
-  notify();
-
+export async function addExcerpt({ sourceId, text, conceptIds }) {
   try {
     const exc = await api.excerpts.create({
       source_id: sourceId,
       text,
-      start_pos: start,
-      end_pos: end,
       concept_ids: conceptIds || [],
     });
-    // Replace temp with real
-    delete state.excerpts[tempId];
     state.excerpts[exc.id] = normalizeExcerpt(exc);
     notify();
     return exc.id;
   } catch (e) {
-    // Rollback optimistic
-    delete state.excerpts[tempId];
-    notify();
     console.error("Error creating excerpt:", e);
+    throw e;
+  }
+}
+
+/**
+ * Update just the content of a source (e.g. after inserting/removing milestones).
+ * Updates local cache and re-notifies subscribers.
+ */
+export async function updateSourceContent(sourceId, content) {
+  try {
+    await api.sources.update({ id: sourceId, content });
+    if (state.sources[sourceId]) {
+      state.sources[sourceId].content = content;
+    }
+    notify();
+  } catch (e) {
+    console.error("Error updating source content:", e);
     throw e;
   }
 }
 
 export async function removeExcerpt(id) {
   try {
+    const exc = state.excerpts[id];
     await api.excerpts.delete(id);
+
+    // Remove milestones from source content
+    if (exc?.sourceId) {
+      const src = state.sources[exc.sourceId];
+      if (src?.content) {
+        const { removeMilestones } = await import("./components/text-highlighter.js");
+        const cleaned = removeMilestones(src.content, id);
+        if (cleaned !== src.content) {
+          await api.sources.update({ id: exc.sourceId, content: cleaned });
+          src.content = cleaned;
+        }
+      }
+    }
+
     delete state.excerpts[id];
     notify();
   } catch (e) {

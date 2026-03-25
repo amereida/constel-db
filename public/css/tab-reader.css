@@ -461,6 +461,15 @@
 .reader-content.rendered-markdown h2 { font-size: 1.25rem; color: var(--accent)}
 .reader-content.rendered-markdown h3 { font-size: 1.1rem; }
 .reader-content.rendered-markdown h4 { font-size: 1rem; text-transform: uppercase; color: var(--accent)}
+.reader-content.rendered-markdown h6 {
+  font-family: var(--font);
+  font-weight: 400;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: .3ex;
+}
 
 .reader-content.rendered-markdown p {
   margin-bottom: 0.75em;
@@ -512,36 +521,72 @@
   padding: var(--space-md);
   border-radius: var(--radius);
   overflow-x: auto;
+  overflow-y: visible;
+  max-height: none;
+  height: auto;
+  min-height: 0;
+  flex-shrink: 0;
   margin: 1em 0;
 }
 
 .reader-content.rendered-markdown pre code {
   background: none;
   padding: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ```poem blocks: rendered as <div class="poem">, not <pre><code> */
+.reader-content.rendered-markdown .poem {
+  white-space: pre-wrap;
+  font-family: var(--font-reading);
+  font-style: normal;
+  font-size: 1em;
+  line-height: 1.8;
+  color: var(--muted);
+  background: var(--surface-alt);
+  padding: var(--space-md);
+  border-radius: var(--radius);
+  margin: 1em 0;
+}
+
+/* Marks inside poem blocks: restore ink color so they stand out */
+.reader-content.rendered-markdown .poem mark[data-excerpt] {
+  color: var(--ink);
+}
+
+/* Legacy: in case any pre code.language-poem still exists */
+.reader-content.rendered-markdown pre code.language-poem {
+  font-family: var(--font-reading);
+  font-style: normal;
+  font-size: 1em;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 /* ── Excerpts marcados ───────────────────────────────────────────────── */
-.reader-content mark {
-  background: var(--mark-bg);
+.reader-content mark[data-excerpt] {
   color: var(--ink);
-  border-bottom: 2px solid var(--accent);
-  padding: 1px 2px;
-  border-radius: 2px;
+  background: var(--mark-bg);  /* fallback if no inline style */
+  border-bottom: none;
+  padding: 2px 6px;
+  border-radius: 3px;
   cursor: pointer;
-  transition: background var(--duration) var(--ease), border-color var(--duration) var(--ease);
+  transition: filter var(--duration) var(--ease);
   text-decoration: none;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 /* Marks hidden mode — !important needed to override inline styles */
-.reader-content.marks-hidden mark {
+.reader-content.marks-hidden mark[data-excerpt] {
   background: transparent !important;
-  border-bottom-color: transparent !important;
   cursor: text;
   pointer-events: none;
 }
 
-.reader-content mark:hover {
-  background: var(--mark-bg-hover);
+.reader-content mark[data-excerpt]:hover {
+  filter: brightness(0.88);
 }
 
 .reader-content mark.highlight-active {
@@ -679,15 +724,24 @@
 }
 
 .reader-content mark.temp-highlight {
-  background: rgba(45, 106, 90, 0.25);
-  border-bottom: 2px dashed var(--accent);
-  border-radius: 2px;
-  animation: pulse-highlight 1.5s ease-in-out infinite;
+  background: rgba(45, 106, 90, 0.2);
+  border-bottom: none;
+  border-radius: 3px;
+  padding: 2px 4px;
 }
 
-@keyframes pulse-highlight {
+/* Saving state: pulsing while waiting for server */
+.reader-content mark.saving-highlight {
+  border-bottom: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  animation: saving-pulse 0.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes saving-pulse {
   0%, 100% { background: rgba(45, 106, 90, 0.25); }
-  50% { background: rgba(45, 106, 90, 0.15); }
+  50% { background: rgba(45, 106, 90, 0.08); }
 }
 
 /* ── Toast ────────────────────────────────────────────────────────────── */

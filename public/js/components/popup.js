@@ -1,15 +1,14 @@
 // popup.js — popup flotante para crear excerpts al seleccionar texto
-// Los offsets se calculan buscando el texto seleccionado en el texto original,
-// no mapeando posiciones DOM (que se desfasan con el HTML).
+// El texto seleccionado se busca en el markdown source raw para insertar milestones.
 
-import { getRenderedSourceText } from "./text-highlighter.js";
+import { getCurrentSourceRaw } from "./text-highlighter.js";
 
 /**
- * Inicializa el popup de creación de excerpts.
+ * Inicializa el popup de creacion de excerpts.
  * @param {Object} opts
  * @param {HTMLElement} opts.popup - elemento .excerpt-popup
  * @param {HTMLElement} opts.readerContent - contenedor del texto
- * @param {Function} opts.onCreateExcerpt - ({ text, start, end, conceptLabel }) => void
+ * @param {Function} opts.onCreateExcerpt - ({ text, conceptLabel }) => void
  */
 export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
   const input = popup.querySelector("#conceptInput");
@@ -19,7 +18,7 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
   let currentSelection = null;
   let tempHighlight = null;
 
-  // escuchar selección de texto en el reader
+  // escuchar seleccion de texto en el reader
   readerContent.addEventListener("mouseup", (e) => {
     setTimeout(() => handleSelection(e), 10);
   });
@@ -33,16 +32,15 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
       return;
     }
 
-    // calcular offsets buscando el texto en el string original
-    const sourceText = getRenderedSourceText();
-    const offsets = findInSourceText(sourceText, text, sel, readerContent);
-    if (!offsets) { hide(); return; }
+    // Verify the text exists in the source (strip milestones for clean search)
+    const sourceRaw = getCurrentSourceRaw();
+    const cleanSource = sourceRaw.replace(/<!-- §[be] \S+ -->/g, "");
+    if (!findInSource(cleanSource, text, sel, readerContent)) {
+      hide();
+      return;
+    }
 
-    currentSelection = {
-      text,
-      start: offsets.start,
-      end: offsets.end,
-    };
+    currentSelection = { text };
 
     // crear highlight temporal
     removeTempHighlight();
@@ -67,81 +65,19 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
   }
 
   /**
-   * Encuentra la posición del texto seleccionado en el texto original.
-   * Usa búsqueda por substring, contextualizando con la posición aproximada del DOM.
+   * Verifica que el texto seleccionado existe en el source.
    */
-  function findInSourceText(sourceText, selectedText, sel, container) {
-    if (!sourceText || !selectedText) return null;
+  function findInSource(cleanSource, selectedText, sel, container) {
+    if (!cleanSource || !selectedText) return false;
 
-    // intentar búsqueda directa
-    const idx = sourceText.indexOf(selectedText);
-    if (idx !== -1) {
-      // verificar que no hay otra ocurrencia (si hay, usar posición DOM para desambiguar)
-      const secondIdx = sourceText.indexOf(selectedText, idx + 1);
-      if (secondIdx === -1) {
-        return { start: idx, end: idx + selectedText.length };
-      }
+    // busqueda directa
+    const idx = cleanSource.indexOf(selectedText);
+    if (idx !== -1) return true;
 
-      // múltiples ocurrencias: usar posición DOM aproximada para elegir la correcta
-      const approxPos = estimateDomPosition(sel, container, sourceText.length);
-      const candidates = [];
-      let searchFrom = 0;
-      while (true) {
-        const found = sourceText.indexOf(selectedText, searchFrom);
-        if (found === -1) break;
-        candidates.push(found);
-        searchFrom = found + 1;
-      }
-
-      // elegir la más cercana a la posición DOM estimada
-      let best = candidates[0];
-      let bestDist = Math.abs(best - approxPos);
-      for (const c of candidates) {
-        const dist = Math.abs(c - approxPos);
-        if (dist < bestDist) { best = c; bestDist = dist; }
-      }
-      return { start: best, end: best + selectedText.length };
-    }
-
-    // no se encontró exacto — intentar con normalización de espacios
+    // intentar con normalizacion de espacios
     const normalized = selectedText.replace(/\s+/g, " ");
-    const normSource = sourceText.replace(/\s+/g, " ");
-    const normIdx = normSource.indexOf(normalized);
-    if (normIdx !== -1) {
-      // mapear posición normalizada a posición original
-      let origPos = 0, normPos = 0;
-      while (normPos < normIdx && origPos < sourceText.length) {
-        if (/\s/.test(sourceText[origPos])) {
-          while (origPos < sourceText.length && /\s/.test(sourceText[origPos])) origPos++;
-          normPos++;
-        } else {
-          origPos++;
-          normPos++;
-        }
-      }
-      return { start: origPos, end: Math.min(origPos + selectedText.length, sourceText.length) };
-    }
-
-    return null;
-  }
-
-  /**
-   * Estima la posición aproximada en el texto original basándose en la posición
-   * proporcional del scroll y la selección en el DOM.
-   */
-  function estimateDomPosition(sel, container, totalLength) {
-    try {
-      const range = sel.getRangeAt(0);
-      const containerRect = container.getBoundingClientRect();
-      const rangeRect = range.getBoundingClientRect();
-      const scrollTop = container.scrollTop;
-      const scrollHeight = container.scrollHeight;
-      const relativeTop = rangeRect.top - containerRect.top + scrollTop;
-      const ratio = relativeTop / scrollHeight;
-      return Math.round(ratio * totalLength);
-    } catch {
-      return 0;
-    }
+    const normSource = cleanSource.replace(/\s+/g, " ");
+    return normSource.indexOf(normalized) !== -1;
   }
 
   function removeTempHighlight() {
@@ -168,25 +104,35 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
     const label = input.value.trim();
     if (!label) { input.focus(); return; }
 
+    const selectedText = currentSelection.text;
+
+    // Keep the highlight visible with a saving animation
+    if (tempHighlight) {
+      tempHighlight.classList.remove("temp-highlight");
+      tempHighlight.classList.add("saving-highlight");
+    }
+
+    // Hide popup but DON'T remove the highlight — it stays until re-render
+    popup.hidden = true;
+    tempHighlight = null; // detach so hide() won't remove it later
+    currentSelection = null;
+    input.value = "";
+
     onCreateExcerpt({
-      text: currentSelection.text,
-      start: currentSelection.start,
-      end: currentSelection.end,
+      text: selectedText,
       conceptLabel: label,
     });
-
-    hide();
   });
 
   cancelBtn.addEventListener("click", () => {
     hide();
   });
 
-  // Enter en el input → crear excerpt (solo si el autocomplete no está visible)
+  // Enter en el input -> crear excerpt (solo si el autocomplete no esta visible)
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       const dropdown = document.getElementById("autocompleteDropdown");
-      if (dropdown && !dropdown.hidden) return; // dejar que el autocomplete maneje
+      if (dropdown && !dropdown.hidden) return;
       e.preventDefault();
       createBtn.click();
     }

@@ -491,7 +491,7 @@ function renderThemeNotes(container, titleEl, themeId) {
           <span class="concept-tag removable" style="border-color: ${theme.color}; background: ${theme.color}20"
                 data-concept-id="${c.id}" data-select-concept="${c.id}">
             ${escapeHtml(c.label)}
-            <button class="tag-remove" data-remove-concept="${c.id}" title="Quitar del tema">✕</button>
+            <button class="tag-remove" data-remove-concept="${c.id}" title="Quitar del tema"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
           </span>
         `).join("")}
       </div>

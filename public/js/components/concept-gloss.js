@@ -18,9 +18,7 @@ import { state, getExcerptsForSource, getExcerptsForConcept } from "../state.js"
 export function renderConceptGloss(container, sourceId, textLength, opts = {}) {
   const excerpts = getExcerptsForSource(sourceId);
   if (!excerpts.length) {
-    container.innerHTML = `<p class="placeholder" style="font-size:var(--font-size-sm);padding:var(--space-md)">
-      Selecciona texto para crear el primer concepto [a]
-    </p>`;
+    container.innerHTML = `<p class="placeholder">Selecciona texto para crear el primer concepto [a]</p>`;
     return { update() {}, cleanup() {} };
   }
 

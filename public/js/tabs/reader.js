@@ -6,9 +6,10 @@ import {
   findConceptByLabel, getExcerptsForSource, getExcerptsForConcept, getSource,
   removeConcept, renameConcept, removeConceptFromExcerpt, removeExcerpt,
   setSelectedConcept, getSelectedConcept,
+  updateSourceContent,
 } from "../state.js";
 import { navigateTo } from "../router.js";
-import { renderHighlightedText, scrollToExcerpt, getRenderedSourceText } from "../components/text-highlighter.js";
+import { renderHighlightedText, scrollToExcerpt, getCurrentSourceRaw, insertMilestones } from "../components/text-highlighter.js";
 import { initExcerptPopup } from "../components/popup.js";
 import { initAutocomplete } from "../components/autocomplete.js";
 import { renderMinimap } from "../components/minimap.js";
@@ -279,7 +280,7 @@ function renderConceptDetailExcerpts(conceptId) {
   const allExcerpts = getExcerptsForConcept(conceptId);
 
   if (!allExcerpts.length) {
-    container.innerHTML = `<p class="placeholder" style="font-size:var(--font-size-sm)">Sin excerpts</p>`;
+    container.innerHTML = `<p class="placeholder">Sin excerpts</p>`;
     return;
   }
 
@@ -351,7 +352,7 @@ function renderExcerptItem(exc, isLocal) {
   const preview = exc.text.length > 140 ? exc.text.slice(0, 140) + "…" : exc.text;
 
   return `<div class="concept-detail-excerpt${isLocal ? " local" : " other-source"}" data-exc-id="${exc.id}" data-source-id="${exc.sourceId}">
-    <button class="excerpt-remove" data-exc-id="${exc.id}" title="Desvincular">✕</button>
+    <button class="excerpt-remove" data-exc-id="${exc.id}" title="Desvincular"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
     §&ensp;${escapeHtml(preview)}
     ${isLocal ? "" : `<div class="excerpt-source">${escapeHtml(srcLabel)}</div>`}
   </div>`;
@@ -416,7 +417,7 @@ function computeExcerptHash() {
 
 // ── Create excerpt ────────────────────────────────────────────────────
 
-async function handleCreateExcerpt({ text, start, end, conceptLabel }) {
+async function handleCreateExcerpt({ text, conceptLabel }) {
   if (!currentSourceId || !conceptLabel) return;
 
   // Immediately show toast (instant feedback)
@@ -432,14 +433,19 @@ async function handleCreateExcerpt({ text, start, end, conceptLabel }) {
       conceptId = await addConcept(conceptLabel);
     }
 
-    // Step 2: Create excerpt (optimistic — mark shows instantly via addExcerpt)
+    // Step 2: Create excerpt (server returns the ID)
     const excerptId = await addExcerpt({
       sourceId: currentSourceId,
       text,
-      start,
-      end,
       conceptIds: [conceptId],
     });
+
+    // Step 3: Insert milestones into the source markdown
+    const sourceRaw = getCurrentSourceRaw();
+    const updatedSource = insertMilestones(sourceRaw, text, excerptId);
+    if (updatedSource) {
+      await updateSourceContent(currentSourceId, updatedSource);
+    }
 
     showToast(`§ [${conceptLabel}]`);
 
@@ -471,38 +477,36 @@ function enterAddSectionMode(conceptId) {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
-    const range = sel.getRangeAt(0);
     const selectedText = sel.toString().trim();
     if (!selectedText) return;
 
-    const sourceText = getRenderedSourceText();
-    const container = document.getElementById("readerTextContent");
+    try {
+      const excerptId = await addExcerpt({
+        sourceId: currentSourceId,
+        text: selectedText,
+        conceptIds: [addSectionConceptId],
+      });
 
-    const startOffset = getTextOffset(container, range.startContainer, range.startOffset);
-    const endOffset = getTextOffset(container, range.endContainer, range.endOffset);
+      // Insert milestones into the source
+      const sourceRaw = getCurrentSourceRaw();
+      const updatedSource = insertMilestones(sourceRaw, selectedText, excerptId);
+      if (updatedSource) {
+        await updateSourceContent(currentSourceId, updatedSource);
+      }
 
-    if (startOffset === -1 || endOffset === -1 || startOffset >= endOffset) {
       sel.removeAllRanges();
-      return;
+      exitAddSectionMode();
+
+      showToast(`§ agregada a [${c.label}]`);
+
+      setTimeout(() => {
+        scrollToExcerpt(document.getElementById("readerTextContent"), excerptId);
+        openConceptDetail(addSectionConceptId);
+      }, 150);
+    } catch (err) {
+      console.error("addSection:", err);
+      showToast(`Error: ${err.message}`);
     }
-
-    const excerptId = await addExcerpt({
-      sourceId: currentSourceId,
-      text: sourceText.slice(startOffset, endOffset),
-      start: startOffset,
-      end: endOffset,
-      conceptIds: [addSectionConceptId],
-    });
-
-    sel.removeAllRanges();
-    exitAddSectionMode();
-
-    showToast(`§ agregada a [${c.label}]`);
-
-    setTimeout(() => {
-      scrollToExcerpt(document.getElementById("readerTextContent"), excerptId);
-      openConceptDetail(addSectionConceptId);
-    }, 150);
   }
 
   readerContent.addEventListener("mouseup", onMouseUp, { once: true });
@@ -520,16 +524,6 @@ function enterAddSectionMode(conceptId) {
 function exitAddSectionMode() {
   addSectionConceptId = null;
   document.getElementById("readerTextContent").classList.remove("add-section-mode");
-}
-
-function getTextOffset(container, node, offset) {
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let pos = 0;
-  while (walker.nextNode()) {
-    if (walker.currentNode === node) return pos + offset;
-    pos += walker.currentNode.textContent.length;
-  }
-  return -1;
 }
 
 function showToast(message) {

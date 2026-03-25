@@ -1,6 +1,6 @@
 // router.js — navegación por tabs via hash
 
-const TABS = ["sources", "reader", "themes"];
+const TABS = ["sources", "reader", "themes", "escuela"];
 const tabCallbacks = new Map();
 let currentTab = "sources";
 let currentParams = {};

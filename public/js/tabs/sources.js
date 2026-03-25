@@ -170,7 +170,7 @@ function showImportModal() {
     <div class="modal-box modal-box-lg">
       <div class="modal-header">
         <h3>Agregar fuente</h3>
-        <button class="btn-icon modal-close" title="Cerrar">✕</button>
+        <button class="btn-icon modal-close" title="Cerrar"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
       </div>
       <form class="modal-form" id="sourceImportForm">
         <div class="modal-form-row">
@@ -278,7 +278,7 @@ function showEditModal(sourceId) {
     <div class="modal-box" id="editModalBox">
       <div class="modal-header">
         <h3>Editar fuente</h3>
-        <button class="btn-icon modal-close" title="Cerrar">✕</button>
+        <button class="btn-icon modal-close" title="Cerrar"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
       </div>
       <form class="modal-form" id="sourceEditForm">
         <label>
@@ -335,6 +335,8 @@ function showEditModal(sourceId) {
       contentLoaded = true;
       updateWordCount(contentArea, wordCountEl);
     }
+    contentArea.setSelectionRange(0, 0);
+    contentArea.scrollTop = 0;
     contentArea.focus();
   });
 

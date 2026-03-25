@@ -26,7 +26,7 @@ export default async (req, context) => {
         LEFT JOIN users u ON u.id = e.created_by
         WHERE e.source_id = ${sourceId}
         GROUP BY e.id, u.name
-        ORDER BY e.start_pos
+        ORDER BY e.created_at
       `;
       return json(rows);
     }
@@ -41,7 +41,7 @@ export default async (req, context) => {
         JOIN sources s ON s.id = e.source_id
         LEFT JOIN users u ON u.id = e.created_by
         WHERE ce.concept_id = ${conceptId}
-        ORDER BY s.date, e.start_pos
+        ORDER BY s.date, e.created_at
       `;
       return json(rows);
     }
@@ -55,7 +55,7 @@ export default async (req, context) => {
       LEFT JOIN concept_excerpts ce ON ce.excerpt_id = e.id
       LEFT JOIN users u ON u.id = e.created_by
       GROUP BY e.id, u.name
-      ORDER BY e.source_id, e.start_pos
+      ORDER BY e.source_id, e.created_at
     `;
     return json(rows);
   }
@@ -68,13 +68,13 @@ export default async (req, context) => {
   if (req.method === "POST") {
     const body = await req.json();
     const { source_id, text, start_pos, end_pos, concept_ids = [] } = body;
-    if (!source_id || start_pos == null || end_pos == null) {
-      return error("source_id, start_pos y end_pos requeridos");
+    if (!source_id) {
+      return error("source_id requerido");
     }
 
     const [excerpt] = await sql`
       INSERT INTO excerpts (source_id, text, start_pos, end_pos, created_by)
-      VALUES (${source_id}, ${text || ""}, ${start_pos}, ${end_pos}, ${user.id})
+      VALUES (${source_id}, ${text || ""}, ${start_pos ?? -1}, ${end_pos ?? -1}, ${user.id})
       RETURNING *
     `;
 

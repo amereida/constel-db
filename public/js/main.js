@@ -8,6 +8,7 @@ import { initSplitViews } from "./components/split-view.js";
 import { initSourcesTab, onSourcesActivated } from "./tabs/sources.js";
 import { initReaderTab, onReaderActivated } from "./tabs/reader.js";
 import { initThemesTab, onThemesActivated } from "./tabs/themes.js";
+import { injectEscuelaTab, initEscuelaTab, onEscuelaActivated } from "./tabs/escuela.js";
 import { applyTranslations, t } from "./i18n.js";
 
 // ── Arranque ────────────────────────────────────────────────────────────────
@@ -28,8 +29,9 @@ async function boot() {
     return;
   }
 
-  // 3. Sync user to DB (skip if no Identity user in dev)
-  if (user) {
+  // 3. Sync user to DB
+  // In dev mode without Identity, backend uses DEV_USER_* env vars as fallback
+  if (user || isDev) {
     try {
       const dbUser = await auth.sync();
       if (dbUser) state.currentUser = dbUser;
@@ -57,6 +59,13 @@ async function boot() {
   onTabChange("sources", onSourcesActivated);
   onTabChange("reader", onReaderActivated);
   onTabChange("themes", onThemesActivated);
+
+  // Admin-only: Escuela tab
+  if (state.currentUser?.role === "admin") {
+    injectEscuelaTab();
+    initEscuelaTab();
+    onTabChange("escuela", onEscuelaActivated);
+  }
 
   initRouter();
   initThemeToggle();
