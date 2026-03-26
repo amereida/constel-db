@@ -26,6 +26,41 @@ function normalizeConcept(raw) {
   };
 }
 
+// ── Slugify ─────────────────────────────────────────────────────────────────
+
+export function slugify(text) {
+  if (!text) return "";
+  return text
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[^a-z0-9]+/g, "-")  // non-alphanumeric → dash
+    .replace(/^-+|-+$/g, "");     // trim leading/trailing dashes
+}
+
+/**
+ * Find a source by slug (derived from title).
+ * Returns the source object or null.
+ */
+export function resolveSourceBySlug(slug) {
+  if (!slug) return null;
+  // Direct ID match first (backward compat)
+  if (state.sources[slug]) return state.sources[slug];
+  // Slug match
+  for (const src of Object.values(state.sources)) {
+    if (slugify(src.title) === slug || slugify(src.filename) === slug) return src;
+  }
+  return null;
+}
+
+/**
+ * Get slug for a source.
+ */
+export function getSourceSlug(sourceId) {
+  const src = state.sources[sourceId];
+  if (!src) return sourceId; // fallback to ID
+  return slugify(src.title || src.filename);
+}
+
 // ── Estado (in-memory cache) ─────────────────────────────────────────────────
 
 export const state = {

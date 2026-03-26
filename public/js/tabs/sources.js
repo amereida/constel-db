@@ -1,6 +1,6 @@
 // sources.js -- Tab 1: gestion del corpus (grilla Mondrian + ficha + editor inline)
 
-import { state, addSource, updateSource, updateSourceContent, removeSource, getExcerptsForSource, getSourceContent, loadExcerptsForSource, subscribe } from "../state.js";
+import { state, addSource, updateSource, updateSourceContent, removeSource, getExcerptsForSource, getSourceContent, loadExcerptsForSource, subscribe, getSourceSlug } from "../state.js";
 import { navigateTo } from "../router.js";
 
 // cache de textos cargados (sourceId -> text)
@@ -147,7 +147,7 @@ function renderDetailContent(container, src, excerpts, sourceId) {
   // Event: Click on card → Leer (except if clicking edit button)
   document.getElementById("detailClickable")?.addEventListener("click", (e) => {
     if (e.target.closest(".source-edit-overlay")) return;
-    navigateTo("reader", { src: sourceId });
+    navigateTo("reader", { src: getSourceSlug(sourceId) });
   });
 
   // Event: Editar (overlay button)
@@ -215,7 +215,7 @@ function renderDetailDynamic(excerpts, sourceId) {
   // Event: click excerpt -> reader
   dynEl.querySelectorAll(".source-excerpt-item").forEach(el => {
     el.addEventListener("click", () => {
-      navigateTo("reader", { src: sourceId });
+      navigateTo("reader", { src: getSourceSlug(sourceId) });
     });
   });
 }
@@ -570,7 +570,7 @@ async function runSearch(query, resultsEl, gridEl) {
 
   resultsEl.querySelectorAll(".search-result").forEach(el => {
     el.addEventListener("click", () => {
-      navigateTo("reader", { src: el.dataset.sourceId, pos: parseInt(el.dataset.charPos) });
+      navigateTo("reader", { src: getSourceSlug(el.dataset.sourceId), pos: parseInt(el.dataset.charPos) });
     });
   });
 }

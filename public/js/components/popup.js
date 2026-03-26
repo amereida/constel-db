@@ -46,13 +46,19 @@ export function initExcerptPopup({ readerContent, onSelection }) {
       tempHighlight = null;
     }
 
+    // Create a positioning anchor even if surroundContents failed.
+    // We insert a zero-width span at the start of the selection for positioning.
+    let anchorEl = tempHighlight;
+    if (!anchorEl) {
+      anchorEl = document.createElement("span");
+      anchorEl.className = "temp-anchor";
+      anchorEl.style.cssText = "display:inline;position:relative;";
+      range.insertNode(anchorEl);
+    }
+
     sel.removeAllRanges();
 
-    // Notify reader.js with the anchor element and text
-    onSelection({
-      text,
-      anchorEl: tempHighlight || range.startContainer.parentElement,
-    });
+    onSelection({ text, anchorEl });
   }
 
   function findInSource(cleanSource, selectedText) {
@@ -77,6 +83,8 @@ export function initExcerptPopup({ readerContent, onSelection }) {
 
   function cleanup() {
     removeTempHighlight();
+    // Remove temp anchor spans
+    readerContent.querySelectorAll(".temp-anchor").forEach(el => el.remove());
   }
 
   /**

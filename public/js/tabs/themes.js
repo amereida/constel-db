@@ -9,6 +9,7 @@ import {
   getConceptsForTheme, getUngroupedConcepts,
   getExcerptsForConcept, loadExcerptsForConcept, getThemeColor,
   getSelectedConcept, setSelectedConcept,
+  getSourceSlug,
 } from "../state.js";
 import { navigateTo } from "../router.js";
 import * as api from "../api.js";
@@ -351,22 +352,46 @@ async function exportMap() {
   }
 }
 
+/**
+ * Update the breadcrumb navigation.
+ * @param {Array} crumbs - [{ label, onClick? }] — last item is current (no link)
+ */
+function setBreadcrumb(crumbs) {
+  const list = document.getElementById("breadcrumbList");
+  if (!list) return;
+
+  list.innerHTML = crumbs.map((c, i) => {
+    const isLast = i === crumbs.length - 1;
+    if (isLast) {
+      return `<li class="breadcrumb-current">${escapeHtml(c.label)}</li>`;
+    }
+    return `<li><button class="breadcrumb-link" data-crumb="${i}">${escapeHtml(c.label)}</button></li>`;
+  }).join("");
+
+  // Attach click handlers
+  list.querySelectorAll(".breadcrumb-link").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.crumb);
+      if (crumbs[idx]?.onClick) crumbs[idx].onClick();
+    });
+  });
+}
+
 function renderThemeDetail() {
   const container = document.getElementById("themeDetailContent");
-  const titleEl = document.getElementById("themeDetailTitle");
   if (!container) return;
 
   if (currentSelection?.type === "concept") {
-    renderConceptDetail(container, titleEl, currentSelection.id);
+    renderConceptDetail(container, currentSelection.id);
   } else if (currentSelection?.type === "theme") {
-    renderThemeNotes(container, titleEl, currentSelection.id);
+    renderThemeNotes(container, currentSelection.id);
   } else {
-    renderThemeOverview(container, titleEl);
+    renderThemeOverview(container);
   }
 }
 
-function renderThemeOverview(container, titleEl) {
-  titleEl.textContent = "Temas";
+function renderThemeOverview(container) {
+  setBreadcrumb([{ label: "Temas y conceptos" }]);
 
   const themes = Object.values(state.themes);
   const ungrouped = getUngroupedConcepts();
@@ -454,11 +479,20 @@ function renderThemeOverview(container, titleEl) {
   });
 }
 
-async function renderConceptDetail(container, titleEl, conceptId) {
+async function renderConceptDetail(container, conceptId) {
   const concept = state.concepts[conceptId];
-  if (!concept) { renderThemeOverview(container, titleEl); return; }
+  if (!concept) { renderThemeOverview(container); return; }
 
-  titleEl.textContent = concept.label;
+  // Breadcrumb: root > [theme?] > concept
+  const theme = concept.themeId ? state.themes[concept.themeId] : null;
+  const crumbs = [
+    { label: "Temas y conceptos", onClick: () => { currentSelection = null; renderThemeDetail(); } },
+  ];
+  if (theme) {
+    crumbs.push({ label: theme.label, onClick: () => { currentSelection = { type: "theme", id: theme.id }; renderThemeDetail(); } });
+  }
+  crumbs.push({ label: concept.label });
+  setBreadcrumb(crumbs);
 
   // Load excerpts and notes in parallel
   let excerpts = getExcerptsForConcept(conceptId);
@@ -475,7 +509,6 @@ async function renderConceptDetail(container, titleEl, conceptId) {
   const themes = Object.values(state.themes);
 
   let html = `
-    <button class="btn-sm" style="margin-bottom: var(--space-md)" id="backToOverviewTop">\u2190 Todos los temas</button>
     <div style="margin-bottom: var(--space-md)">
       <label style="font-size: var(--font-size-sm); color: var(--muted)">Tema:</label>
       <select id="conceptThemeSelect" style="margin-left: var(--space-sm); padding: var(--space-xs)">
@@ -519,7 +552,6 @@ async function renderConceptDetail(container, titleEl, conceptId) {
         `;
       }).join("")}
     </div>
-    <button class="btn-sm" style="margin-top: var(--space-md)" id="backToOverview">\u2190 Todos los temas</button>
   `;
 
   container.innerHTML = html;
@@ -530,7 +562,7 @@ async function renderConceptDetail(container, titleEl, conceptId) {
     const text = textarea?.value?.trim();
     if (!text) return;
     await addConceptNote(conceptId, text);
-    renderConceptDetail(container, titleEl, conceptId);
+    renderConceptDetail(container, conceptId);
   });
 
   // Edit own note (inline)
@@ -549,7 +581,7 @@ async function renderConceptDetail(container, titleEl, conceptId) {
         const newText = textDiv.querySelector("textarea").value.trim();
         if (newText) {
           await updateNote(noteId, newText);
-          renderConceptDetail(container, titleEl, conceptId);
+          renderConceptDetail(container, conceptId);
         }
       });
     });
@@ -560,7 +592,7 @@ async function renderConceptDetail(container, titleEl, conceptId) {
     btn.addEventListener("click", async () => {
       const noteId = btn.dataset.noteId;
       await removeNote(noteId);
-      renderConceptDetail(container, titleEl, conceptId);
+      renderConceptDetail(container, conceptId);
     });
   });
 
@@ -573,20 +605,13 @@ async function renderConceptDetail(container, titleEl, conceptId) {
   // Click excerpt -> reader
   container.querySelectorAll(".excerpt-item").forEach(item => {
     item.addEventListener("click", () => {
-      navigateTo("reader", { src: item.dataset.source, exc: item.dataset.excerpt });
+      navigateTo("reader", { src: getSourceSlug(item.dataset.source), exc: item.dataset.excerpt });
     });
   });
 
-  const backBtns = container.querySelectorAll("#backToOverview, #backToOverviewTop");
-  backBtns.forEach(btn => {
-    btn?.addEventListener("click", () => {
-      currentSelection = null;
-      renderThemeDetail();
-    });
-  });
 }
 
-function renderThemeNotes(container, titleEl, themeId) {
+function renderThemeNotes(container, themeId) {
   const theme = state.themes[themeId];
   if (!theme) { renderThemeOverview(container, titleEl); return; }
 
@@ -601,8 +626,13 @@ function renderThemeNotes(container, titleEl, themeId) {
   const seen = new Set();
   const excerpts = allExcerpts.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
 
+  // Breadcrumb: root > theme
+  setBreadcrumb([
+    { label: "Temas y conceptos", onClick: () => { currentSelection = null; renderThemeDetail(); } },
+    { label: theme.label },
+  ]);
+
   let html = `
-    <button class="btn-sm" style="margin-bottom: var(--space-md)" id="backToOverviewTop">← Todos los temas</button>
     <div class="theme-detail-top">
       <div class="theme-section-header" style="margin-bottom: var(--space-xs)">
         <span class="theme-color-dot" style="background: ${theme.color}"></span>
@@ -676,7 +706,6 @@ function renderThemeNotes(container, titleEl, themeId) {
     </div>
     ` : ""}
 
-    <button class="btn-sm" style="margin-top: var(--space-md)" id="backToOverview">← Todos los temas</button>
   `;
 
   container.innerHTML = html;
@@ -761,17 +790,10 @@ function renderThemeNotes(container, titleEl, themeId) {
 
   container.querySelectorAll(".excerpt-item").forEach(item => {
     item.addEventListener("click", () => {
-      navigateTo("reader", { src: item.dataset.source, exc: item.dataset.excerpt });
+      navigateTo("reader", { src: getSourceSlug(item.dataset.source), exc: item.dataset.excerpt });
     });
   });
 
-  const backBtns = container.querySelectorAll("#backToOverview, #backToOverviewTop");
-  backBtns.forEach(btn => {
-    btn?.addEventListener("click", () => {
-      currentSelection = null;
-      renderThemeDetail();
-    });
-  });
 }
 
 function escapeHtml(s) {

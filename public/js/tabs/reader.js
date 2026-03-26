@@ -7,6 +7,7 @@ import {
   removeConcept, renameConcept, removeConceptFromExcerpt, removeExcerpt,
   setSelectedConcept, getSelectedConcept,
   updateSourceContent,
+  resolveSourceBySlug, getSourceSlug,
 } from "../state.js";
 import { navigateTo } from "../router.js";
 import { renderHighlightedText, scrollToExcerpt, getCurrentSourceRaw, insertMilestones } from "../components/text-highlighter.js";
@@ -125,7 +126,12 @@ export function initReaderTab() {
 }
 
 export async function onReaderActivated(params) {
-  const sourceId = params.src;
+  const srcParam = params.src;
+  if (!srcParam) return;
+
+  // Resolve slug or ID to source
+  const resolved = resolveSourceBySlug(srcParam);
+  const sourceId = resolved?.id;
   if (!sourceId) return;
 
   const preservedConceptId = selectedConceptId;
@@ -323,7 +329,7 @@ function renderConceptDetailExcerpts(conceptId) {
       if (srcId === currentSourceId) {
         scrollToExcerpt(document.getElementById("readerTextContent"), excId);
       } else {
-        navigateTo("reader", { src: srcId, exc: excId });
+        navigateTo("reader", { src: getSourceSlug(srcId), exc: excId });
       }
     });
   });
