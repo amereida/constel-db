@@ -91,6 +91,9 @@ async function request(method, path, body) {
  */
 export function requireLogin() {
   if (getCurrentUser()) return true;
+  // In dev mode, allow without Identity (backend uses DEV_USER_* env vars)
+  const isDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (isDev) return true;
   const siteUrl = window.location.origin;
   window.location.href = `${siteUrl}/.netlify/identity/authorize?provider=google`;
   return false;
@@ -173,6 +176,13 @@ export const graph = {
   /** Filtered by source */
   bySource: (sourceId, minExcerpts = 1) =>
     request("GET", `/graph?source_id=${sourceId}&min_excerpts=${minExcerpts}`),
+  /** Multi-filter: arrays of source IDs and/or user IDs */
+  filtered: ({ sourceIds, userIds, minExcerpts = 1 } = {}) => {
+    const params = [`min_excerpts=${minExcerpts}`];
+    if (sourceIds?.length) params.push(`sources=${sourceIds.join(",")}`);
+    if (userIds?.length) params.push(`users=${userIds.join(",")}`);
+    return request("GET", `/graph?${params.join("&")}`);
+  },
 };
 
 // ── Admin ────────────────────────────────────────────────────────────────────

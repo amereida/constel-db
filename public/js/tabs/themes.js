@@ -11,13 +11,20 @@ import {
   getSelectedConcept, setSelectedConcept,
 } from "../state.js";
 import { navigateTo } from "../router.js";
+import * as api from "../api.js";
+import { fuzzyMatch } from "../fuzzy.js";
 import { renderConceptMap } from "../components/concept-map.js";
 import { renderConceptMap3D, cleanupGraph3D } from "../components/concept-map-3d.js";
 
 let currentSelection = null; // { type: "concept"|"theme", id: string }
 let mapCtrl = null;
 let mapMode = localStorage.getItem("constel-mapMode") || "2d";
-let conceptsSectionOpen = false; // estado de apertura de la sección colapsable de conceptos
+let conceptsSectionOpen = false;
+
+// Map filters
+let filterSourceIds = [];
+let filterUserIds = [];
+let cachedUsers = null; // loaded once from admin API
 
 export function initThemesTab() {
   subscribe(() => {
@@ -94,6 +101,8 @@ async function renderMap() {
   const mapOpts = {
     threshold,
     showEdges,
+    sourceIds: filterSourceIds.length ? filterSourceIds : undefined,
+    userIds: filterUserIds.length ? filterUserIds : undefined,
     onClickConcept: (conceptId) => {
       currentSelection = { type: "concept", id: conceptId };
       setSelectedConcept(conceptId);
@@ -148,6 +157,129 @@ function initMapControls() {
   });
 
   document.getElementById("mapExportBtn")?.addEventListener("click", exportMap);
+
+  // Filter toggle
+  const filterToggle = document.getElementById("mapFilterToggle");
+  const filterPanel = document.getElementById("mapFilters");
+  filterToggle?.addEventListener("click", () => {
+    filterPanel.hidden = !filterPanel.hidden;
+    filterToggle.classList.toggle("active", !filterPanel.hidden);
+  });
+
+  // Filter autocompletes
+  initFilterInput("filterSourceInput", "filterSourceDropdown", "filterSourceTags",
+    () => Object.values(state.sources).map(s => ({ id: s.id, label: `${s.title} (${s.date || ""})` })),
+    filterSourceIds, renderMap
+  );
+  initFilterInput("filterUserInput", "filterUserDropdown", "filterUserTags",
+    async () => {
+      if (!cachedUsers) {
+        try { cachedUsers = await api.admin.users(); } catch { cachedUsers = []; }
+      }
+      return cachedUsers.map(u => ({ id: u.id, label: u.name || u.email }));
+    },
+    filterUserIds, renderMap
+  );
+}
+
+// ── Map filter helpers ──────────────────────────────────────────────────
+
+/**
+ * Set up a filter input with autocomplete dropdown and tags.
+ * @param {string} inputId - ID of the text input
+ * @param {string} dropdownId - ID of the dropdown container
+ * @param {string} tagsId - ID of the tags container
+ * @param {Function} getCandidates - async/sync fn returning [{id, label}]
+ * @param {string[]} selectedIds - mutable array of selected IDs
+ * @param {Function} onChanged - called after filter changes
+ */
+function initFilterInput(inputId, dropdownId, tagsId, getCandidates, selectedIds, onChanged) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  const tagsEl = document.getElementById(tagsId);
+  if (!input || !dropdown || !tagsEl) return;
+
+  let candidates = [];
+  const labelMap = {}; // id → label
+
+  async function ensureCandidates() {
+    if (!candidates.length) {
+      candidates = await Promise.resolve(getCandidates());
+      candidates.forEach(c => { labelMap[c.id] = c.label; });
+    }
+    return candidates;
+  }
+
+  input.addEventListener("focus", () => renderDropdown());
+  input.addEventListener("input", () => renderDropdown());
+
+  input.addEventListener("blur", () => {
+    setTimeout(() => { dropdown.hidden = true; }, 200);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { dropdown.hidden = true; input.blur(); }
+    if (e.key === "Enter") {
+      const first = dropdown.querySelector(".filter-dropdown-item:not(.disabled)");
+      if (first) first.click();
+      e.preventDefault();
+    }
+  });
+
+  async function renderDropdown() {
+    const all = await ensureCandidates();
+    const query = input.value.trim().toLowerCase();
+    let filtered;
+    if (query) {
+      filtered = fuzzyMatch(query, all, 20);
+    } else {
+      filtered = all;
+    }
+
+    dropdown.innerHTML = filtered.map(c => {
+      const selected = selectedIds.includes(c.id);
+      return `<div class="filter-dropdown-item ${selected ? "disabled" : ""}" data-id="${c.id}">
+        ${escapeHtml(c.label)}${selected ? " ✓" : ""}
+      </div>`;
+    }).join("");
+    dropdown.hidden = filtered.length === 0;
+
+    dropdown.querySelectorAll(".filter-dropdown-item:not(.disabled)").forEach(el => {
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const id = el.dataset.id;
+        if (!selectedIds.includes(id)) {
+          selectedIds.push(id);
+          renderTags();
+          onChanged();
+        }
+        input.value = "";
+        dropdown.hidden = true;
+      });
+    });
+  }
+
+  function renderTags() {
+    tagsEl.innerHTML = selectedIds.map(id => {
+      const label = labelMap[id] || id;
+      return `<span class="filter-tag" data-id="${id}">${escapeHtml(label)}
+        <button class="filter-tag-remove" data-id="${id}"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
+      </span>`;
+    }).join("");
+
+    tagsEl.querySelectorAll(".filter-tag-remove").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        const idx = selectedIds.indexOf(id);
+        if (idx >= 0) selectedIds.splice(idx, 1);
+        renderTags();
+        onChanged();
+      });
+    });
+  }
+
+  // Initial render
+  renderTags();
 }
 
 async function exportMap() {

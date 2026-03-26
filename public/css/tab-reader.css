@@ -425,10 +425,13 @@
 .reader-text-panel {
   flex: 1;
   min-width: 300px;
-  display: flex;
-  flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.reader-text-wrapper {
+  display: flex;
+  min-height: 100%;
 }
 
 .reader-content {
@@ -534,6 +537,15 @@
   padding: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* images */
+.reader-content.rendered-markdown img{
+  mix-blend-mode: multiply;
+  border-radius: .4ex;
+}
+.reader-content.rendered-markdown img:hover{
+  mix-blend-mode: normal;
 }
 
 /* ```poem blocks: rendered as <div class="poem">, not <pre><code> */
@@ -783,4 +795,74 @@
   0% { background: var(--accent); color: white; }
   70% { background: var(--accent); color: white; }
   100% { background: transparent; color: inherit; }
+}
+
+/* ── Sidenotes column (Tufte-style) ───────────────────────────────────── */
+
+.reader-sidenotes {
+  position: relative;
+  width: 280px;
+  flex-shrink: 0;
+  padding: var(--space-lg) var(--space-md) var(--space-lg) 0;
+}
+
+/* Hide column when empty */
+.reader-sidenotes:empty {
+  display: none;
+}
+
+.sidenote {
+  position: absolute;
+  left: 0;
+  width: 260px;
+  font-family: var(--font-reading);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink);
+  font-style: normal;
+}
+
+.sidenote-number {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.75rem;
+  margin-right: 2px;
+}
+
+/* Footnote ref in text */
+.reader-content sup a[data-fn-ref] {
+  font-size: 0.7em;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0 1px;
+}
+
+.reader-content sup a[data-fn-ref]:hover {
+  text-decoration: underline;
+}
+
+.sidenote-highlight {
+  background: var(--accent-bg, rgba(45, 106, 90, 0.1));
+  border-radius: var(--radius);
+  transition: background 0.3s var(--ease);
+}
+
+/* Narrow screens: collapse sidenotes inline below paragraphs */
+@media (max-width: 1100px) {
+  .reader-sidenotes {
+    display: none;
+  }
+
+  /* Fallback: show inline sidenotes inside reader-content */
+  .sidenote-inline {
+    display: block;
+    margin: 0.25em 0 0.75em 2em;
+    padding-left: 0.75em;
+    border-left: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    font-family: var(--font);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
 }

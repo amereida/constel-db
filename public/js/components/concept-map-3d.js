@@ -35,7 +35,11 @@ export async function renderConceptMap3D(container, opts = {}) {
     return null;
   }
 
-  const { nodes, links } = await computeConceptGraph(opts.sourceId || null);
+  const { nodes, links } = await computeConceptGraph({
+    sourceId: opts.sourceId,
+    sourceIds: opts.sourceIds,
+    userIds: opts.userIds,
+  });
   if (!nodes.length) {
     container.innerHTML = `<p class="placeholder">Marca pasajes con conceptos para ver el mapa</p>`;
     return null;

@@ -155,6 +155,8 @@ export async function onReaderActivated(params) {
   lastExcerptHash = "";
   const readerContent = document.getElementById("readerTextContent");
   readerContent.innerHTML = `<p class="placeholder">Cargando...</p>`;
+  const sidenotesCol = document.getElementById("readerSidenotes");
+  if (sidenotesCol) sidenotesCol.innerHTML = "";
 
   // Load text and excerpts in parallel
   const [text] = await Promise.all([

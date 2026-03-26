@@ -59,6 +59,134 @@
   color: var(--accent);
 }
 
+/* ── Map filter toggle ────────────────────────────────────────────────── */
+.map-filter-toggle {
+  color: var(--muted);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.map-filter-toggle:hover,
+.map-filter-toggle.active {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ── Map filters drawer ───────────────────────────────────────────────── */
+.map-filters {
+  display: none;
+  gap: var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.map-filters:not([hidden]) {
+  display: flex;
+}
+
+.map-filter-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.map-filter-label {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.filter-input-wrap {
+  position: relative;
+}
+
+.filter-input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.filter-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.filter-dropdown-item {
+  padding: 4px 8px;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.filter-dropdown-item:hover {
+  background: var(--surface-alt);
+}
+
+.filter-dropdown-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 10px;
+  color: var(--ink);
+}
+
+.filter-tag-remove {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.1s;
+}
+
+.filter-tag-remove:hover {
+  opacity: 1;
+}
+
+.filter-tag-remove .btn-svg-icon {
+  width: 10px;
+  height: 10px;
+}
+
 /* iOS-style 2D/3D toggle switch */
 .map-mode-switch {
   display: flex;

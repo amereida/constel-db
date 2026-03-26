@@ -30,7 +30,11 @@ function parseHash() {
       if (k) params[k] = decodeURIComponent(v || "");
     }
   }
-  return { tab: TABS.includes(tab) ? tab : "sources", params };
+  // If hash is not a known tab (e.g. #fn-1), stay on current tab
+  if (!TABS.includes(tab)) {
+    return { tab: currentTab, params: currentParams };
+  }
+  return { tab, params };
 }
 
 function applyRoute() {

@@ -1,11 +1,11 @@
 {
   "name": "constel-db",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "type": "module",
   "description": "con§tel — herramienta colaborativa de análisis temático de corpus textuales",
   "private": true,
   "scripts": {
-    "dev": "netlify dev",
+    "dev": "npm run version && netlify dev",
     "build": "echo 'No build step needed'",
     "version": "node -e \"import('fs').then(fs=>fs.writeFileSync('public/version.json',JSON.stringify({version:JSON.parse(fs.readFileSync('package.json','utf8')).version})+'\\n'))\""
   },
@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@netlify/functions": "^2.0.0",
+    "marked-footnote": "^1.4.0",
     "postgres": "^3.4.0"
   }
 }

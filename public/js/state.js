@@ -500,14 +500,15 @@ export async function addConceptNote(conceptId, text) {
  * Fetch concept graph from API.
  * Falls back to local computation if API fails.
  */
-export async function computeConceptGraph(sourceId = null, userId = null) {
+export async function computeConceptGraph({ sourceId, userId, sourceIds, userIds } = {}) {
   try {
-    if (userId) {
-      return await api.graph.byUser(userId);
+    // Multi-filter (from map filter drawer)
+    if (sourceIds?.length || userIds?.length) {
+      return await api.graph.filtered({ sourceIds, userIds });
     }
-    if (sourceId) {
-      return await api.graph.bySource(sourceId);
-    }
+    // Legacy single-value params
+    if (userId) return await api.graph.byUser(userId);
+    if (sourceId) return await api.graph.bySource(sourceId);
     return await api.graph.full();
   } catch (e) {
     console.warn("Graph API failed, computing locally:", e);

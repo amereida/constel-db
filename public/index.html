@@ -41,7 +41,7 @@
           </label>
         </div>
       </div>
-      <button class="btn-icon" id="themeToggle" title="Cambiar tema"><img src="icons/icons_mode-switch.svg" alt="Cambiar tema" width="20" height="20" style="filter: var(--icon-filter); opacity: 0.8"></button>
+      <button class="btn-icon" id="themeToggle" title="Cambiar tema"><img src="icons/icons_mode-switch.svg" alt="Cambiar tema" width="20" height="20" style="opacity: 0.4"></button>
       <div class="user-info" id="userInfo" style="display:none"></div>
     </div>
   </header>
@@ -128,10 +128,13 @@
             </div>
           </div>
         </div>
-        <!-- Derecha: texto -->
+        <!-- Derecha: texto + sidenotes -->
         <div class="reader-text-panel" id="readerText">
-          <div class="panel-content reader-content" id="readerTextContent">
-            <p class="placeholder" data-i18n="reader.select_text">Selecciona un texto desde Fuentes para comenzar a leer</p>
+          <div class="reader-text-wrapper">
+            <div class="panel-content reader-content" id="readerTextContent">
+              <p class="placeholder" data-i18n="reader.select_text">Selecciona un texto desde Fuentes para comenzar a leer</p>
+            </div>
+            <div class="reader-sidenotes" id="readerSidenotes"></div>
           </div>
         </div>
       </div>
@@ -167,6 +170,29 @@
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
             </button>
+            <button class="btn-icon map-filter-toggle" id="mapFilterToggle" title="Filtros">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+              </svg>
+            </button>
+          </div>
+          <div class="map-filters" id="mapFilters" hidden>
+            <div class="map-filter-group">
+              <label class="map-filter-label">Fuentes</label>
+              <div class="filter-input-wrap">
+                <input type="text" class="filter-input" id="filterSourceInput" placeholder="Buscar fuente..." autocomplete="off">
+                <div class="filter-dropdown" id="filterSourceDropdown" hidden></div>
+              </div>
+              <div class="filter-tags" id="filterSourceTags"></div>
+            </div>
+            <div class="map-filter-group">
+              <label class="map-filter-label">Usuarios</label>
+              <div class="filter-input-wrap">
+                <input type="text" class="filter-input" id="filterUserInput" placeholder="Buscar usuario..." autocomplete="off">
+                <div class="filter-dropdown" id="filterUserDropdown" hidden></div>
+              </div>
+              <div class="filter-tags" id="filterUserTags"></div>
+            </div>
           </div>
           <div class="panel-content map-content" id="mapContainer"></div>
         </div>

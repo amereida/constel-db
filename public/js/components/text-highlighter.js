@@ -3,6 +3,34 @@
 
 import { state, getExcerptsForSource, removeExcerpt } from "../state.js";
 import { marked } from "../lib/marked.esm.js";
+import markedFootnote from "../lib/marked-footnote.esm.js";
+
+// ── Smart quotes ────────────────────────────────────────────────────────
+// Replace dumb quotes with typographic quotes in rendered HTML.
+// Only processes text outside of HTML tags to avoid breaking attributes.
+
+function smartQuotes(html) {
+  // First decode &quot; and &#39; to literal quotes so regex can process them
+  html = html.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+  return html.replace(/>([^<]+)</g, (match, text) => {
+    const fixed = text
+      // Double quotes
+      .replace(/(\s|^)"(\S)/g, '$1\u201C$2')   // after space/start → open
+      .replace(/(\S)"(\s|[.,;:!?\)]|$)/g, '$1\u201D$2') // before space/punct/end → close
+      .replace(/"/g, '\u201D')                  // remaining → close
+      // Single quotes / apostrophes
+      .replace(/(\s|^)'(\S)/g, '$1\u2018$2')   // after space/start → open
+      .replace(/(\S)'(\s|[.,;:!?\)]|$)/g, '$1\u2019$2') // before space/punct/end → close
+      .replace(/(\w)'(\w)/g, '$1\u2019$2')     // within word (it's, l'eau) → apostrophe
+      .replace(/'/g, '\u2019')                  // remaining → close
+      // Dashes: -- → em dash, ... → ellipsis
+      .replace(/---/g, '\u2014')               // --- → em dash
+      .replace(/--/g, '\u2014')                // -- → em dash
+      .replace(/\.\.\./g, '\u2026');           // ... → ellipsis
+    return `>${fixed}<`;
+  });
+}
 
 // ── Configure marked ─────────────────────────────────────────────────────
 
@@ -11,6 +39,9 @@ marked.setOptions({
   gfm: true,
   headerIds: false,
 });
+
+// Footnotes → rendered as <section class="footnotes"> by marked-footnote
+marked.use(markedFootnote({ prefixId: "fn-" }));
 
 /**
  * Preprocess source text before marked.parse():
@@ -148,12 +179,140 @@ export function renderHighlightedText(container, source, sourceId, onExcerptClic
   _currentSourceRaw = source;
 
   // Preprocess to prevent indented code blocks, then parse
-  const html = marked.parse(preprocessSource(source));
+  const html = smartQuotes(marked.parse(preprocessSource(source)));
   container.innerHTML = html;
   container.classList.add("rendered-markdown");
 
+  // Convert footnotes to sidenotes
+  convertFootnotesToSidenotes(container);
+
+  // Intercept footnote reference clicks — highlight sidenote instead of navigating
+  container.querySelectorAll('a[data-fn-ref]').forEach(link => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      const fnId = link.getAttribute("href")?.slice(1); // "fn-1"
+      if (!fnId) return;
+      const sidenote = document.querySelector(`.sidenote[data-fn-id="${fnId}"]`);
+      if (sidenote) {
+        sidenote.classList.add("sidenote-highlight");
+        sidenote.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        setTimeout(() => sidenote.classList.remove("sidenote-highlight"), 2000);
+      }
+    });
+  });
+
   // Attach event listeners to all marks
   attachMarkListeners(container, onExcerptClick);
+}
+
+// ── Sidenotes ────────────────────────────────────────────────────────────
+
+/**
+ * Convert marked-footnote's <section class="footnotes"> into sidenotes
+ * in the right column. Each note is positioned at the vertical offset
+ * of its <sup> reference in the text.
+ */
+function convertFootnotesToSidenotes(container) {
+  const footnotesSection = container.querySelector("section.footnotes");
+  if (!footnotesSection) return;
+
+  const sidenotesCol = document.getElementById("readerSidenotes");
+  if (!sidenotesCol) return;
+
+  // Clear previous sidenotes
+  sidenotesCol.innerHTML = "";
+
+  const items = footnotesSection.querySelectorAll("li[id]");
+  const sidenotes = [];
+
+  items.forEach((li, i) => {
+    const fnId = li.id; // e.g. "fn-1"
+    const refId = fnId.replace("fn-", "fn-ref-"); // e.g. "fn-ref-1"
+    const refEl = container.querySelector(`#${CSS.escape(refId)}`);
+
+    // Get the content of the footnote (strip the backref link)
+    const backref = li.querySelector("a[data-fn-backref]");
+    if (backref) backref.remove();
+    const noteContent = li.innerHTML.trim()
+      .replace(/^<p>/, "").replace(/<\/p>$/, ""); // unwrap single <p>
+
+    // Create sidenote element
+    const aside = document.createElement("aside");
+    aside.className = "sidenote";
+    aside.dataset.fnId = fnId;
+    aside.innerHTML = `<span class="sidenote-number">${i + 1}</span> ${noteContent}`;
+
+    sidenotesCol.appendChild(aside);
+    sidenotes.push({ aside, refEl });
+  });
+
+  // Remove the original footnotes section
+  footnotesSection.remove();
+
+  // Position sidenotes after DOM is settled
+  requestAnimationFrame(() => {
+    positionSidenotes(container, sidenotesCol, sidenotes);
+    setupSidenoteScrollHandler(container, sidenotesCol);
+  });
+}
+
+/**
+ * Position each sidenote at the vertical offset of its reference <sup>.
+ * Prevents overlap by pushing notes down if they collide.
+ */
+function positionSidenotes(container, sidenotesCol, sidenotes) {
+  // Both container (text) and sidenotesCol share the same scrollable parent
+  const scrollParent = container.closest(".reader-text-panel");
+  if (!scrollParent) return;
+
+  const colRect = sidenotesCol.getBoundingClientRect();
+  let lastBottom = 0;
+
+  for (const { aside, refEl } of sidenotes) {
+    if (!refEl) continue;
+
+    // Position relative to the sidenotes column top
+    const refRect = refEl.getBoundingClientRect();
+    let top = refRect.top - colRect.top;
+
+    // Prevent overlap with previous sidenote
+    if (top < lastBottom + 8) {
+      top = lastBottom + 8;
+    }
+
+    aside.style.top = `${top}px`;
+    lastBottom = top + aside.offsetHeight;
+  }
+}
+
+/**
+ * Reposition sidenotes on scroll (refs move relative to viewport).
+ */
+function setupSidenoteScrollHandler(container, sidenotesCol) {
+  const scrollParent = container.closest(".reader-text-panel");
+  if (!scrollParent) return;
+
+  // Collect sidenote/ref pairs from DOM
+  const sidenotes = [];
+  sidenotesCol.querySelectorAll(".sidenote").forEach(aside => {
+    const fnId = aside.dataset.fnId;
+    const refId = fnId.replace("fn-", "fn-ref-");
+    const refEl = container.querySelector(`#${CSS.escape(refId)}`);
+    sidenotes.push({ aside, refEl });
+  });
+
+  if (!sidenotes.length) return;
+
+  // Reposition on scroll with throttle
+  let ticking = false;
+  scrollParent.addEventListener("scroll", () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      positionSidenotes(container, sidenotesCol, sidenotes);
+      ticking = false;
+    });
+  });
 }
 
 // ── Mark event listeners ──────────────────────────────────────────────────

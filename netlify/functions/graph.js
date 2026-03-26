@@ -3,24 +3,29 @@ import { requireAuth, json, error } from "./utils/auth.js";
 
 /**
  * GET /api/graph                          — full concept graph for map
- * GET /api/graph?user_id=X                — graph filtered by user
- * GET /api/graph?source_id=X              — graph filtered by source
- * GET /api/graph?min_excerpts=N           — filter by minimum excerpt count
+ * GET /api/graph?sources=id1,id2          — filter by sources
+ * GET /api/graph?users=id1,id2            — filter by users
+ * GET /api/graph?min_excerpts=N           — minimum excerpt count
  *
  * Returns { nodes: [...], links: [...], themes: [...] }
- * Compatible with both 2D and 3D concept maps.
  */
 export default async (req, context) => {
   const sql = getDb();
   const url = new URL(req.url);
-  const userId = url.searchParams.get("user_id");
-  const sourceId = url.searchParams.get("source_id");
   const minExcerpts = parseInt(url.searchParams.get("min_excerpts") || "1", 10);
+
+  // Parse multi-value filters (comma-separated), with legacy single-value fallback
+  const sourcesParam = url.searchParams.get("sources") || url.searchParams.get("source_id");
+  const usersParam = url.searchParams.get("users") || url.searchParams.get("user_id");
+  const sourceIds = sourcesParam ? sourcesParam.split(",").filter(Boolean) : null;
+  const userIds = usersParam ? usersParam.split(",").filter(Boolean) : null;
+
+  const hasSourceFilter = sourceIds && sourceIds.length > 0;
+  const hasUserFilter = userIds && userIds.length > 0;
 
   // Build concept nodes with excerpt counts
   let concepts;
-  if (userId) {
-    // Only concepts created by or linked to by this user
+  if (hasSourceFilter && hasUserFilter) {
     concepts = await sql`
       SELECT c.id, c.label, c.created_by, tc.theme_id,
         count(DISTINCT ce.excerpt_id) AS excerpt_count
@@ -28,12 +33,13 @@ export default async (req, context) => {
       LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
       JOIN concept_excerpts ce ON ce.concept_id = c.id
       JOIN excerpts e ON e.id = ce.excerpt_id
-      WHERE e.created_by = ${userId} OR ce.linked_by = ${userId}
+      WHERE e.source_id = ANY(${sourceIds})
+        AND (e.created_by = ANY(${userIds}) OR ce.linked_by = ANY(${userIds}))
       GROUP BY c.id, c.label, c.created_by, tc.theme_id
       HAVING count(DISTINCT ce.excerpt_id) >= ${minExcerpts}
       ORDER BY c.label
     `;
-  } else if (sourceId) {
+  } else if (hasSourceFilter) {
     concepts = await sql`
       SELECT c.id, c.label, c.created_by, tc.theme_id,
         count(DISTINCT ce.excerpt_id) AS excerpt_count
@@ -41,7 +47,20 @@ export default async (req, context) => {
       LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
       JOIN concept_excerpts ce ON ce.concept_id = c.id
       JOIN excerpts e ON e.id = ce.excerpt_id
-      WHERE e.source_id = ${sourceId}
+      WHERE e.source_id = ANY(${sourceIds})
+      GROUP BY c.id, c.label, c.created_by, tc.theme_id
+      HAVING count(DISTINCT ce.excerpt_id) >= ${minExcerpts}
+      ORDER BY c.label
+    `;
+  } else if (hasUserFilter) {
+    concepts = await sql`
+      SELECT c.id, c.label, c.created_by, tc.theme_id,
+        count(DISTINCT ce.excerpt_id) AS excerpt_count
+      FROM concepts c
+      LEFT JOIN theme_concepts tc ON tc.concept_id = c.id
+      JOIN concept_excerpts ce ON ce.concept_id = c.id
+      JOIN excerpts e ON e.id = ce.excerpt_id
+      WHERE e.created_by = ANY(${userIds}) OR ce.linked_by = ANY(${userIds})
       GROUP BY c.id, c.label, c.created_by, tc.theme_id
       HAVING count(DISTINCT ce.excerpt_id) >= ${minExcerpts}
       ORDER BY c.label
@@ -59,20 +78,40 @@ export default async (req, context) => {
     `;
   }
 
-  // Build links: concepts sharing excerpts
+  // Build links: concepts sharing excerpts (filtered to same scope)
   const conceptIds = concepts.map(c => c.id);
   let links = [];
   if (conceptIds.length > 0) {
-    links = await sql`
-      SELECT ce1.concept_id AS source, ce2.concept_id AS target,
-        count(*) AS weight
-      FROM concept_excerpts ce1
-      JOIN concept_excerpts ce2 ON ce1.excerpt_id = ce2.excerpt_id
-        AND ce1.concept_id < ce2.concept_id
-      WHERE ce1.concept_id = ANY(${conceptIds})
-        AND ce2.concept_id = ANY(${conceptIds})
-      GROUP BY ce1.concept_id, ce2.concept_id
-    `;
+    // When filters are active, only count co-occurrences within filtered excerpts
+    if (hasSourceFilter || hasUserFilter) {
+      const sourceFilter = hasSourceFilter ? sql`AND e1.source_id = ANY(${sourceIds})` : sql``;
+      const userFilter = hasUserFilter ? sql`AND (e1.created_by = ANY(${userIds}) OR ce1.linked_by = ANY(${userIds}))` : sql``;
+
+      links = await sql`
+        SELECT ce1.concept_id AS source, ce2.concept_id AS target,
+          count(*) AS weight
+        FROM concept_excerpts ce1
+        JOIN concept_excerpts ce2 ON ce1.excerpt_id = ce2.excerpt_id
+          AND ce1.concept_id < ce2.concept_id
+        JOIN excerpts e1 ON e1.id = ce1.excerpt_id
+        WHERE ce1.concept_id = ANY(${conceptIds})
+          AND ce2.concept_id = ANY(${conceptIds})
+          ${sourceFilter}
+          ${userFilter}
+        GROUP BY ce1.concept_id, ce2.concept_id
+      `;
+    } else {
+      links = await sql`
+        SELECT ce1.concept_id AS source, ce2.concept_id AS target,
+          count(*) AS weight
+        FROM concept_excerpts ce1
+        JOIN concept_excerpts ce2 ON ce1.excerpt_id = ce2.excerpt_id
+          AND ce1.concept_id < ce2.concept_id
+        WHERE ce1.concept_id = ANY(${conceptIds})
+          AND ce2.concept_id = ANY(${conceptIds})
+        GROUP BY ce1.concept_id, ce2.concept_id
+      `;
+    }
   }
 
   // Themes
