@@ -9,8 +9,8 @@
 
 /* ── Glosa cronológica (izquierda) ───────────────────────────────────── */
 .reader-gloss {
-  width: 280px;
-  min-width: 160px;
+  width: 220px;
+  min-width: 140px;
   max-width: 50vw;
   display: flex;
   flex-direction: column;
@@ -868,6 +868,7 @@ mark[data-excerpt].mark-hidden {
 }
 
 /* ── Excerpt popover (click on mark → add concept) ──────────────────── */
+/* -- Unified popover (view + edit + create) -- */
 .excerpt-popover {
   z-index: 1200;
   background: var(--surface);
@@ -875,36 +876,93 @@ mark[data-excerpt].mark-hidden {
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   padding: var(--space-sm);
-  min-width: 180px;
-  max-width: 300px;
+  min-width: 160px;
+  max-width: 340px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
 }
 
-.excerpt-popover-concepts {
+/* Arrow pointing down */
+.excerpt-popover::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--surface);
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.08));
+}
+
+.popover-pills {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
-  margin-bottom: var(--space-xs);
 }
 
-.excerpt-popover-tag {
+.popover-pill {
   font-size: var(--font-size-sm);
   color: var(--accent);
   font-weight: 500;
   cursor: pointer;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
 }
 
-.excerpt-popover-tag:hover {
+.popover-pill:hover {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-.excerpt-popover-add {
-  position: relative;
+.popover-pill .pill-remove {
+  display: inline-flex;
+  padding: 0;
+  margin-left: 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.5;
 }
 
-.excerpt-popover-input {
+.popover-pill .pill-remove:hover {
+  opacity: 1;
+}
+
+.popover-pill .pill-remove .btn-svg-icon {
+  width: 10px;
+  height: 10px;
+}
+
+.popover-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.popover-actions .btn-icon {
+  padding: 2px;
+  opacity: 0.4;
+}
+
+.popover-actions .btn-icon:hover {
+  opacity: 1;
+}
+
+.popover-input-wrap {
+  position: relative;
+  width: 100%;
+  flex-basis: 100%;
+  margin-top: var(--space-xs);
+}
+
+.popover-input {
   width: 100%;
   font-family: var(--font);
   font-size: var(--font-size-sm);
@@ -915,17 +973,17 @@ mark[data-excerpt].mark-hidden {
   color: var(--ink);
 }
 
-.excerpt-popover-input:focus {
+.popover-input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.excerpt-popover-dropdown {
+.popover-dropdown {
   position: absolute;
   left: 0;
   right: 0;
-  top: 100%;
-  margin-top: 2px;
+  bottom: 100%;
+  margin-bottom: 2px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -935,17 +993,24 @@ mark[data-excerpt].mark-hidden {
   z-index: 1300;
 }
 
-.excerpt-popover-option {
+.popover-option {
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
-.excerpt-popover-option:hover {
+.popover-option:hover {
   background: var(--surface-alt);
 }
 
-.excerpt-popover-option.new {
+.popover-option.new {
   color: var(--accent);
   font-style: italic;
+}
+
+.popover-create-actions {
+  display: flex;
+  gap: var(--space-xs);
+  width: 100%;
+  margin-top: var(--space-xs);
 }

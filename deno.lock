@@ -12,6 +12,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@netlify/functions@2",
+        "npm:marked-footnote@^1.4.0",
         "npm:postgres@^3.4.0"
       ]
     }

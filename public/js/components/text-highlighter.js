@@ -172,14 +172,11 @@ export function renderHighlightedText(container, source, sourceId, onExcerptClic
  * of its <sup> reference in the text.
  */
 function convertFootnotesToSidenotes(container) {
-  const footnotesSection = container.querySelector("section.footnotes");
-  if (!footnotesSection) return;
-
   const sidenotesCol = document.getElementById("readerSidenotes");
-  if (!sidenotesCol) return;
+  if (sidenotesCol) sidenotesCol.innerHTML = "";
 
-  // Clear previous sidenotes
-  sidenotesCol.innerHTML = "";
+  const footnotesSection = container.querySelector("section.footnotes");
+  if (!footnotesSection || !sidenotesCol) return;
 
   const items = footnotesSection.querySelectorAll("li[id]");
   const sidenotes = [];

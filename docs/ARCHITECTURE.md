@@ -18,9 +18,9 @@ Texto normal <!-- §b exc_123 -->texto marcado<!-- §e exc_123 --> mas texto.
 ```mermaid
 flowchart TD
     A[Source markdown\ncon milestones] --> B[preprocessSource]
-    B --> B1["1. Milestones → &lt;mark&gt; HTML"]
-    B --> B2["2. ```poem → :::poem"]
-    B --> B3["3. Indent 4+ → nbsp"]
+    B --> B1["1. Milestones a mark HTML"]
+    B --> B2["2. poem blocks a div.poem"]
+    B --> B3["3. Indent 4+ a nbsp"]
     B1 --> C[marked.parse]
     B2 --> C
     B3 --> C
@@ -30,10 +30,10 @@ flowchart TD
     C1 --> D[smartQuotes]
     C2 --> D
     C3 --> D
-    D --> D1["\" → curly quotes"]
-    D --> D2["-- → em dash"]
-    D --> D3["... → ellipsis"]
-    D1 --> E["HTML final con &lt;mark&gt; interactivos"]
+    D --> D1["comillas tipograficas"]
+    D --> D2["em dash"]
+    D --> D3["ellipsis"]
+    D1 --> E["HTML final con mark interactivos"]
     D2 --> E
     D3 --> E
 ```
@@ -262,12 +262,12 @@ GET /api/graph?min_excerpts=1&sources=id1,id2&users=id1,id2
 
 ```mermaid
 flowchart TD
-    A["markdown: texto[^1]"] --> B["marked-footnote"]
+    A["markdown con footnotes"] --> B[marked-footnote]
     B --> C["HTML: sup + section.footnotes"]
-    C --> D["convertFootnotesToSidenotes()"]
-    D --> E["Mueve li a .reader-sidenotes"]
-    E --> F["JS calcula top segun sup"]
-    F --> G["Click en sup → highlight sidenote"]
+    C --> D[convertFootnotesToSidenotes]
+    D --> E["Mueve notas a columna lateral"]
+    E --> F["Calcula posicion vertical"]
+    F --> G["Click en sup resalta nota"]
 ```
 
 Las footnotes en markdown (`[^1]: texto`) se renderizan como sidenotes
@@ -277,16 +277,16 @@ en una columna lateral derecha, alineadas con su referencia `<sup>`.
 
 ```mermaid
 flowchart TD
-    A[auto-annotate.mjs] --> B["PASO 1: Claude analiza texto"]
-    B --> C["Propone conceptos existentes + nuevos"]
-    C --> D["Revision interactiva: agregar/quitar"]
-    D --> E["PASO 2: Claude genera secciones con anclas"]
-    E --> F["Resolver anclas en texto"]
-    F --> G["POST /concepts si nuevo"]
-    F --> H["POST /excerpts"]
-    F --> I["insertMilestones en source"]
-    F --> J["POST /concepts/link-excerpt"]
-    G --> K["PUT /sources con milestones"]
+    A[auto-annotate.mjs] --> B["Paso 1: Claude analiza texto"]
+    B --> C[Propone conceptos]
+    C --> D[Revision interactiva]
+    D --> E["Paso 2: Claude genera secciones"]
+    E --> F[Resolver anclas en texto]
+    F --> G[POST /concepts]
+    F --> H[POST /excerpts]
+    F --> I[insertMilestones]
+    F --> J[POST /concepts/link-excerpt]
+    G --> K[PUT /sources con milestones]
     H --> K
     I --> K
     J --> K

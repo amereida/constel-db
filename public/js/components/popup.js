@@ -1,25 +1,20 @@
-// popup.js — popup flotante para crear excerpts al seleccionar texto
-// El texto seleccionado se busca en el markdown source raw para insertar milestones.
+// popup.js — detecta seleccion de texto y notifica al reader
+// Ya no muestra un popup propio; delega al popover unificado de reader.js
 
 import { getCurrentSourceRaw } from "./text-highlighter.js";
 
 /**
- * Inicializa el popup de creacion de excerpts.
+ * Inicializa la deteccion de seleccion de texto para crear excerpts.
  * @param {Object} opts
- * @param {HTMLElement} opts.popup - elemento .excerpt-popup
  * @param {HTMLElement} opts.readerContent - contenedor del texto
- * @param {Function} opts.onCreateExcerpt - ({ text, conceptLabel }) => void
+ * @param {Function} opts.onSelection - ({ text, anchorEl }) => void
  */
-export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
-  const input = popup.querySelector("#conceptInput");
-  const createBtn = popup.querySelector("#createExcerpt");
-  const cancelBtn = popup.querySelector("#cancelExcerpt");
-
-  let currentSelection = null;
+export function initExcerptPopup({ readerContent, onSelection }) {
   let tempHighlight = null;
 
-  // escuchar seleccion de texto en el reader
   readerContent.addEventListener("mouseup", (e) => {
+    // Don't intercept clicks on existing marks (those open the view popover)
+    if (e.target.closest("mark[data-excerpt]")) return;
     setTimeout(() => handleSelection(e), 10);
   });
 
@@ -28,21 +23,19 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
     const text = sel?.toString().trim();
 
     if (!text || text.length < 3) {
-      hide();
+      cleanup();
       return;
     }
 
-    // Verify the text exists in the source (strip milestones for clean search)
+    // Verify the text exists in the source
     const sourceRaw = getCurrentSourceRaw();
     const cleanSource = sourceRaw.replace(/<!-- §[be] \S+ -->/g, "");
-    if (!findInSource(cleanSource, text, sel, readerContent)) {
-      hide();
+    if (!findInSource(cleanSource, text)) {
+      cleanup();
       return;
     }
 
-    currentSelection = { text };
-
-    // crear highlight temporal
+    // Create temp highlight
     removeTempHighlight();
     const range = sel.getRangeAt(0);
     try {
@@ -53,28 +46,18 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
       tempHighlight = null;
     }
 
-    // posicionar popup
-    const rect = (tempHighlight || range).getBoundingClientRect();
-    popup.style.left = `${Math.min(rect.left, window.innerWidth - 320)}px`;
-    popup.style.top = `${rect.bottom + 8}px`;
-    popup.hidden = false;
-    input.value = "";
-
     sel.removeAllRanges();
-    input.focus();
+
+    // Notify reader.js with the anchor element and text
+    onSelection({
+      text,
+      anchorEl: tempHighlight || range.startContainer.parentElement,
+    });
   }
 
-  /**
-   * Verifica que el texto seleccionado existe en el source.
-   */
-  function findInSource(cleanSource, selectedText, sel, container) {
+  function findInSource(cleanSource, selectedText) {
     if (!cleanSource || !selectedText) return false;
-
-    // busqueda directa
-    const idx = cleanSource.indexOf(selectedText);
-    if (idx !== -1) return true;
-
-    // intentar con normalizacion de espacios
+    if (cleanSource.indexOf(selectedText) !== -1) return true;
     const normalized = selectedText.replace(/\s+/g, " ");
     const normSource = cleanSource.replace(/\s+/g, " ");
     return normSource.indexOf(normalized) !== -1;
@@ -92,64 +75,21 @@ export function initExcerptPopup({ popup, readerContent, onCreateExcerpt }) {
     }
   }
 
-  function hide() {
+  function cleanup() {
     removeTempHighlight();
-    popup.hidden = true;
-    currentSelection = null;
-    input.value = "";
   }
 
-  createBtn.addEventListener("click", () => {
-    if (!currentSelection) return;
-    if (createBtn.disabled) return;
-    const label = input.value.trim();
-    if (!label) { input.focus(); return; }
-
-    const selectedText = currentSelection.text;
-
-    // Prevent double-click
-    createBtn.disabled = true;
-    createBtn.textContent = "Guardando...";
-
-    // Keep the highlight visible with a saving animation
+  /**
+   * Called after excerpt is created — keep the highlight visible
+   * with a saving animation until re-render replaces it.
+   */
+  function detachHighlight() {
     if (tempHighlight) {
       tempHighlight.classList.remove("temp-highlight");
       tempHighlight.classList.add("saving-highlight");
+      tempHighlight = null; // detach so cleanup won't remove it
     }
+  }
 
-    // Hide popup but DON'T remove the highlight — it stays until re-render
-    popup.hidden = true;
-    tempHighlight = null; // detach so hide() won't remove it later
-    currentSelection = null;
-    input.value = "";
-
-    onCreateExcerpt({
-      text: selectedText,
-      conceptLabel: label,
-    }).finally(() => {
-      createBtn.disabled = false;
-      createBtn.textContent = "Marcar \u00a7";
-    });
-  });
-
-  cancelBtn.addEventListener("click", () => {
-    hide();
-  });
-
-  // Enter en el input -> crear excerpt (solo si el autocomplete no esta visible)
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      const dropdown = document.getElementById("autocompleteDropdown");
-      if (dropdown && !dropdown.hidden) return;
-      e.preventDefault();
-      createBtn.click();
-    }
-  });
-
-  // ESC para cerrar
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !popup.hidden) hide();
-  });
-
-  return { hide };
+  return { cleanup, detachHighlight, removeTempHighlight };
 }

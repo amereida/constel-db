@@ -46,8 +46,8 @@
     <span class="tab-source-title" id="tabSourceTitle">
       <span id="readerTitle"></span>
       <div class="marks-switch" id="marksSwitch">
-        <button class="marks-switch-btn active" data-marks="all" title="Todas las anotaciones">§*</button>
-        <button class="marks-switch-btn" data-marks="mine" title="Mis anotaciones">§</button>
+        <button class="marks-switch-btn" data-marks="all" title="Todas las anotaciones">§*</button>
+        <button class="marks-switch-btn active" data-marks="mine" title="Mis anotaciones">§</button>
         <button class="marks-switch-btn" data-marks="none" title="Sin anotaciones">—</button>
         <span class="marks-switch-indicator"></span>
       </div>
@@ -193,17 +193,7 @@
     </section>
   </main>
 
-  <!-- Popup para crear excerpts (oculto por defecto) -->
-  <div class="excerpt-popup" id="excerptPopup" hidden>
-    <div class="popup-content">
-      <input type="text" id="conceptInput" placeholder="Concepto [a]..." autocomplete="off">
-      <div class="autocomplete-dropdown" id="autocompleteDropdown" hidden></div>
-      <div class="popup-actions">
-        <button class="btn-primary btn-sm" id="createExcerpt">Marcar §</button>
-        <button class="btn-sm" id="cancelExcerpt" data-i18n="sources.cancel">Cancelar</button>
-      </div>
-    </div>
-  </div>
+  <!-- Popover for excerpts is created dynamically by reader.js -->
 
   <!-- Netlify Identity Widget -->
   <script type="text/javascript" src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>

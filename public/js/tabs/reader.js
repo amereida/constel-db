@@ -20,26 +20,21 @@ import { getCurrentUser, requireLogin } from "../api.js";
 let currentSourceId = null;
 let currentText = null;
 let popupController = null;
-let autocompleteController = null;
+let _pendingSelection = null;
 let glossController = null;
 let selectedConceptId = null;
 let lastExcerptHash = "";
 export function initReaderTab() {
-  const popup = document.getElementById("excerptPopup");
   const readerContent = document.getElementById("readerTextContent");
-  const input = document.getElementById("conceptInput");
-  const dropdown = document.getElementById("autocompleteDropdown");
 
   popupController = initExcerptPopup({
-    popup,
     readerContent,
-    onCreateExcerpt: handleCreateExcerpt,
-  });
-
-  const createBtn = document.getElementById("createExcerpt");
-  autocompleteController = initAutocomplete(input, dropdown, (conceptData) => {
-    input.value = conceptData.label;
-    createBtn.click();
+    onSelection: ({ text, anchorEl }) => {
+      // Store the selected text for handleCreateExcerpt
+      _pendingSelection = { text, anchorEl };
+      // Show the create popover above the selection
+      showCreatePopover(anchorEl);
+    },
   });
 
   document.getElementById("backToSources")?.addEventListener("click", () => {
@@ -415,117 +410,237 @@ function computeExcerptHash() {
     + "|c:" + Object.values(state.concepts).map(c => c.id + c.label).join(",");
 }
 
-// ── Excerpt popover (click on mark) ──────────────────────────────────
+// ── Unified popover for marks ────────────────────────────────────────
+// Two modes: "view" (click on existing mark) and "edit" (pencil or new selection)
 
 function showExcerptPopover(excerptId, markEl) {
-  // Close any existing popover
   closeExcerptPopover();
 
   const exc = state.excerpts[excerptId];
   if (!exc) return;
 
-  // Also open the concept detail sidebar for the first concept
+  // Open concept detail sidebar
   if (exc.conceptIds.length > 0) {
     openConceptDetail(exc.conceptIds[0]);
   }
 
-  const concepts = exc.conceptIds
-    .map(cid => state.concepts[cid])
-    .filter(Boolean);
+  _renderPopover(markEl, "view", { excerptId });
+}
+
+function showEditPopover(excerptId, markEl) {
+  closeExcerptPopover();
+  _renderPopover(markEl, "edit", { excerptId });
+}
+
+/**
+ * Show popover for creating a new excerpt from text selection.
+ * Replaces the old fixed #excerptPopup.
+ */
+function showCreatePopover(anchorEl, range) {
+  closeExcerptPopover();
+  _renderPopover(anchorEl, "create", { range });
+}
+
+function _renderPopover(anchorEl, mode, opts = {}) {
+  const { excerptId, range } = opts;
+  const exc = excerptId ? state.excerpts[excerptId] : null;
+  const concepts = exc
+    ? exc.conceptIds.map(cid => state.concepts[cid]).filter(Boolean)
+    : [];
 
   const popover = document.createElement("div");
   popover.className = "excerpt-popover";
-  popover.innerHTML = `
-    <div class="excerpt-popover-concepts">
-      ${concepts.map(c => `
-        <span class="excerpt-popover-tag" data-concept-id="${c.id}">${escapeHtml(c.label)}</span>
-      `).join("")}
-    </div>
-    <div class="excerpt-popover-add">
-      <input type="text" class="excerpt-popover-input" placeholder="+ concepto" autocomplete="off" />
-      <div class="excerpt-popover-dropdown" hidden></div>
-    </div>
-  `;
+  popover.dataset.mode = mode;
+  if (excerptId) popover.dataset.excerptId = excerptId;
 
-  // Position below the mark
-  const rect = markEl.getBoundingClientRect();
-  const scrollParent = markEl.closest(".reader-text-panel");
-  const parentRect = scrollParent?.getBoundingClientRect() || { left: 0, top: 0 };
+  if (mode === "view") {
+    // View mode: pills + edit + delete
+    popover.innerHTML = `
+      <div class="popover-pills">
+        ${concepts.map(c => `
+          <span class="popover-pill" data-concept-id="${c.id}">${escapeHtml(c.label)}</span>
+        `).join("")}
+      </div>
+      <div class="popover-actions">
+        <button class="btn-icon popover-edit" title="Editar"><img src="icons/icons_edit.svg" class="btn-svg-icon" alt="" /></button>
+        <button class="btn-icon popover-delete" title="Eliminar seccion"><img src="icons/icons_trash.svg" class="btn-svg-icon" alt="" /></button>
+      </div>
+    `;
+  } else {
+    // Edit or Create mode: pills with X + input
+    popover.innerHTML = `
+      <div class="popover-pills">
+        ${concepts.map(c => `
+          <span class="popover-pill editable" data-concept-id="${c.id}">
+            ${escapeHtml(c.label)}
+            <button class="pill-remove" data-concept-id="${c.id}" title="Quitar"><img src="icons/icons_close.svg" class="btn-svg-icon" alt="" /></button>
+          </span>
+        `).join("")}
+      </div>
+      <div class="popover-input-wrap">
+        <input type="text" class="popover-input" placeholder="${mode === "create" ? "Concepto [a]..." : "+ concepto"}" autocomplete="off" />
+        <div class="popover-dropdown" hidden></div>
+      </div>
+      ${mode === "create" ? `
+        <div class="popover-create-actions">
+          <button class="btn-primary btn-sm popover-confirm">Marcar §</button>
+          <button class="btn-sm popover-cancel">Cancelar</button>
+        </div>
+      ` : ""}
+    `;
+  }
 
-  popover.style.position = "absolute";
-  popover.style.left = `${rect.left - parentRect.left + scrollParent.scrollLeft}px`;
-  popover.style.top = `${rect.bottom - parentRect.top + scrollParent.scrollTop + 4}px`;
+  // Position ABOVE the anchor
+  _positionPopover(popover, anchorEl);
 
-  // Append to the scroll container so it scrolls with the text
-  scrollParent?.appendChild(popover);
+  // Append
+  const scrollParent = anchorEl.closest(".reader-text-panel");
+  (scrollParent || document.body).appendChild(popover);
 
-  // Click concept tag → open its detail
-  popover.querySelectorAll(".excerpt-popover-tag").forEach(tag => {
-    tag.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openConceptDetail(tag.dataset.conceptId);
+  // -- Events --
+
+  if (mode === "view") {
+    // Click pill → open concept detail
+    popover.querySelectorAll(".popover-pill").forEach(pill => {
+      pill.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openConceptDetail(pill.dataset.conceptId);
+      });
     });
-  });
 
-  // Input: add concept to this excerpt
-  const input = popover.querySelector(".excerpt-popover-input");
-  const dropdown = popover.querySelector(".excerpt-popover-dropdown");
+    // Edit button → switch to edit mode
+    popover.querySelector(".popover-edit")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showEditPopover(excerptId, anchorEl);
+    });
 
-  input.addEventListener("keyup", (e) => {
-    const val = input.value.trim().toLowerCase();
-    if (val.length < 1) { dropdown.hidden = true; return; }
-
-    // Fuzzy match existing concepts
-    const matches = Object.values(state.concepts)
-      .filter(c => c.label.toLowerCase().includes(val) && !exc.conceptIds.includes(c.id))
-      .slice(0, 6);
-
-    if (matches.length === 0 && val.length >= 2) {
-      dropdown.innerHTML = `<div class="excerpt-popover-option new" data-label="${escapeHtml(val)}">+ crear "${escapeHtml(val)}"</div>`;
-      dropdown.hidden = false;
-    } else if (matches.length > 0) {
-      dropdown.innerHTML = matches.map(c =>
-        `<div class="excerpt-popover-option" data-concept-id="${c.id}">${escapeHtml(c.label)}</div>`
-      ).join("");
-      // Also show "create new" option if no exact match
-      if (!matches.find(c => c.label.toLowerCase() === val)) {
-        dropdown.innerHTML += `<div class="excerpt-popover-option new" data-label="${escapeHtml(val)}">+ crear "${escapeHtml(val)}"</div>`;
+    // Delete button
+    popover.querySelector(".popover-delete")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (confirm("Eliminar esta seccion?")) {
+        handleDeleteExcerpt(excerptId);
+        closeExcerptPopover();
       }
-      dropdown.hidden = false;
-    } else {
-      dropdown.hidden = true;
-    }
-  });
+    });
+  } else {
+    // Edit/Create mode
 
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeExcerptPopover(); return; }
-    if (e.key === "Enter") {
-      const val = input.value.trim();
-      if (val) linkConceptToExcerpt(excerptId, val, markEl);
-    }
-  });
+    // Remove pill X
+    popover.querySelectorAll(".pill-remove").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const cid = btn.dataset.conceptId;
+        if (excerptId) {
+          await unlinkConceptFromExcerpt(excerptId, cid);
+          // Re-render in edit mode
+          showEditPopover(excerptId, anchorEl);
+        }
+      });
+    });
 
-  // Click on dropdown option
-  dropdown.addEventListener("click", (e) => {
-    const opt = e.target.closest(".excerpt-popover-option");
-    if (!opt) return;
-    e.stopPropagation();
-    if (opt.dataset.conceptId) {
-      addConceptToExcerpt(excerptId, opt.dataset.conceptId);
+    // Input + autocomplete
+    const input = popover.querySelector(".popover-input");
+    const dropdown = popover.querySelector(".popover-dropdown");
+
+    input?.addEventListener("keyup", () => {
+      _updateDropdown(input, dropdown, exc?.conceptIds || []);
+    });
+
+    input?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { closeExcerptPopover(); return; }
+      if (e.key === "Enter") {
+        const val = input.value.trim();
+        if (!val) return;
+        if (mode === "edit" && excerptId) {
+          linkConceptToExcerpt(excerptId, val, anchorEl);
+        } else if (mode === "create") {
+          _handleCreate(val, range);
+        }
+      }
+    });
+
+    dropdown?.addEventListener("click", (e) => {
+      const opt = e.target.closest(".popover-option");
+      if (!opt) return;
+      e.stopPropagation();
+      if (mode === "edit" && excerptId) {
+        if (opt.dataset.conceptId) {
+          addConceptToExcerpt(excerptId, opt.dataset.conceptId);
+          closeExcerptPopover();
+          showToast(`+ ${opt.textContent.trim()}`);
+        } else if (opt.dataset.label) {
+          linkConceptToExcerpt(excerptId, opt.dataset.label, anchorEl);
+        }
+      } else if (mode === "create") {
+        const label = opt.dataset.label || opt.textContent.trim();
+        _handleCreate(label, range);
+      }
+    });
+
+    // Create mode: confirm/cancel
+    popover.querySelector(".popover-confirm")?.addEventListener("click", () => {
+      const val = input?.value.trim();
+      if (val) _handleCreate(val, range);
+    });
+    popover.querySelector(".popover-cancel")?.addEventListener("click", () => {
       closeExcerptPopover();
-      showToast(`+ ${opt.textContent.trim()}`);
-    } else if (opt.dataset.label) {
-      linkConceptToExcerpt(excerptId, opt.dataset.label, markEl);
-    }
-  });
+    });
 
-  // Focus input
-  setTimeout(() => input.focus(), 50);
+    setTimeout(() => input?.focus(), 50);
+  }
 
   // Close on outside click
   setTimeout(() => {
     document.addEventListener("click", _popoverOutsideClick);
   }, 100);
+}
+
+function _positionPopover(popover, anchorEl) {
+  const scrollParent = anchorEl.closest(".reader-text-panel");
+  const parentRect = scrollParent?.getBoundingClientRect() || { left: 0, top: 0 };
+  const rect = anchorEl.getBoundingClientRect();
+
+  popover.style.position = "absolute";
+  // Center horizontally on the anchor
+  const anchorCenterX = rect.left + rect.width / 2 - parentRect.left + (scrollParent?.scrollLeft || 0);
+  popover.style.left = `${anchorCenterX}px`;
+  popover.style.transform = "translateX(-50%)";
+  // Position ABOVE the anchor
+  popover.style.top = `${rect.top - parentRect.top + (scrollParent?.scrollTop || 0) - 8}px`;
+  popover.style.transform += " translateY(-100%)";
+}
+
+function _updateDropdown(input, dropdown, excludeIds = []) {
+  const val = input.value.trim().toLowerCase();
+  if (val.length < 1) { dropdown.hidden = true; return; }
+
+  const matches = Object.values(state.concepts)
+    .filter(c => c.label.toLowerCase().includes(val) && !excludeIds.includes(c.id))
+    .slice(0, 6);
+
+  let html = matches.map(c =>
+    `<div class="popover-option" data-concept-id="${c.id}" data-label="${escapeHtml(c.label)}">${escapeHtml(c.label)}</div>`
+  ).join("");
+
+  if (!matches.find(c => c.label.toLowerCase() === val) && val.length >= 2) {
+    html += `<div class="popover-option new" data-label="${escapeHtml(val)}">+ crear "${escapeHtml(val)}"</div>`;
+  }
+
+  if (html) {
+    dropdown.innerHTML = html;
+    dropdown.hidden = false;
+  } else {
+    dropdown.hidden = true;
+  }
+}
+
+function _handleCreate(label) {
+  if (!_pendingSelection) return;
+  closeExcerptPopover();
+  // Keep highlight visible during save
+  if (popupController?.detachHighlight) popupController.detachHighlight();
+  handleCreateExcerpt({ text: _pendingSelection.text, conceptLabel: label });
+  _pendingSelection = null;
 }
 
 function _popoverOutsideClick(e) {
@@ -593,16 +708,22 @@ async function handleCreateExcerpt({ text, conceptLabel }) {
     const updatedSource = insertMilestones(sourceRaw, text, excerptId);
     if (updatedSource) {
       await updateSourceContent(currentSourceId, updatedSource);
+
+      // Re-render immediately with the updated source (has milestones)
+      currentText = updatedSource;
+      renderTextAndMinimap(currentSourceId, updatedSource);
+      rebuildGloss(currentSourceId, updatedSource.length);
+
+      showToast(`§ [${conceptLabel}]`);
+
+      requestAnimationFrame(() => {
+        scrollToExcerpt(document.getElementById("readerTextContent"), excerptId);
+        openConceptDetail(conceptId);
+      });
     } else {
       console.warn("insertMilestones failed: text not found in source for", excerptId);
+      showToast(`§ [${conceptLabel}] (sin marca)`);
     }
-
-    showToast(`§ [${conceptLabel}]`);
-
-    requestAnimationFrame(() => {
-      scrollToExcerpt(document.getElementById("readerTextContent"), excerptId);
-      openConceptDetail(conceptId);
-    });
   } catch (err) {
     showToast(`Error: ${err.message}`);
     console.error("handleCreateExcerpt:", err);
@@ -690,7 +811,7 @@ function showToast(message) {
 }
 
 // Marks visibility: "all" | "mine" | "none"
-let marksMode = "all";
+let marksMode = "mine";
 
 function initMarksSwitch() {
   const container = document.getElementById("marksSwitch");
@@ -730,12 +851,18 @@ function applyMarksVisibility() {
   textPanel.querySelectorAll("mark[data-excerpt]").forEach(mark => {
     if (marksMode === "none") {
       mark.classList.add("mark-hidden");
-    } else if (marksMode === "mine" && userId) {
-      const excId = mark.dataset.excerpt;
-      const exc = state.excerpts[excId];
-      const isMine = exc?.createdBy === userId;
-      mark.classList.toggle("mark-hidden", !isMine);
+    } else if (marksMode === "mine") {
+      if (!userId) {
+        // No user → show all (can't filter by "mine")
+        mark.classList.remove("mark-hidden");
+      } else {
+        const excId = mark.dataset.excerpt;
+        const exc = state.excerpts[excId];
+        const isMine = exc?.createdBy === userId || exc?.created_by === userId;
+        mark.classList.toggle("mark-hidden", !isMine);
+      }
     } else {
+      // "all"
       mark.classList.remove("mark-hidden");
     }
   });
