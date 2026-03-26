@@ -722,12 +722,12 @@ function initMarksSwitch() {
 }
 
 function applyMarksVisibility() {
-  const readerContent = document.getElementById("readerTextContent");
-  if (!readerContent) return;
+  const textPanel = document.querySelector(".reader-text-panel");
+  if (!textPanel) return;
 
   const userId = state.currentUser?.id;
 
-  readerContent.querySelectorAll("mark[data-excerpt]").forEach(mark => {
+  textPanel.querySelectorAll("mark[data-excerpt]").forEach(mark => {
     if (marksMode === "none") {
       mark.classList.add("mark-hidden");
     } else if (marksMode === "mine" && userId) {

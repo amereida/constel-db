@@ -124,14 +124,9 @@ function renderDetailContent(container, src, excerpts, sourceId) {
 
   // -- Fixed zone (instant) --
   container.innerHTML = `
-    <div class="source-detail-view">
-      <div class="source-detail-header">
-        <h2>${escapeHtml(src.title || src.filename)}</h2>
-        <div class="source-detail-actions">
-          <button class="btn-primary btn-sm" id="detailReadBtn">Leer</button>
-          ${isAdmin ? `<button class="btn-sm" id="detailEditBtn">Editar</button>` : ""}
-        </div>
-      </div>
+    <div class="source-detail-view source-detail-clickable" id="detailClickable" title="Leer este texto">
+      ${isAdmin ? `<button class="btn-icon source-edit-overlay" id="detailEditBtn" title="Editar"><img src="icons/icons_edit.svg" class="btn-svg-icon" alt="" /></button>` : ""}
+      <h2 class="source-detail-title">${escapeHtml(src.title || src.filename)}</h2>
 
       <div class="source-detail-meta">
         ${src.author ? `<div><strong>Autor:</strong> ${escapeHtml(src.author)}</div>` : ""}
@@ -149,13 +144,15 @@ function renderDetailContent(container, src, excerpts, sourceId) {
   // Render dynamic zone
   renderDetailDynamic(excerpts, sourceId);
 
-  // Event: Leer
-  document.getElementById("detailReadBtn")?.addEventListener("click", () => {
+  // Event: Click on card → Leer (except if clicking edit button)
+  document.getElementById("detailClickable")?.addEventListener("click", (e) => {
+    if (e.target.closest(".source-edit-overlay")) return;
     navigateTo("reader", { src: sourceId });
   });
 
-  // Event: Editar
-  document.getElementById("detailEditBtn")?.addEventListener("click", () => {
+  // Event: Editar (overlay button)
+  document.getElementById("detailEditBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
     renderSourceEditor(sourceId);
   });
 }
