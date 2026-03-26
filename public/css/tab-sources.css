@@ -491,12 +491,20 @@
   color: var(--accent);
   border: 1px solid var(--accent);
   border-radius: var(--radius);
-  display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s ease;
   background: transparent;
+}
+
+/* hidden attribute must win over display */
+.btn-add-source[hidden] {
+  display: none !important;
+}
+
+.btn-add-source:not([hidden]) {
+  display: flex;
 }
 
 .btn-add-source:hover {

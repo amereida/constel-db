@@ -601,13 +601,27 @@ function _positionPopover(popover, anchorEl) {
   const rect = anchorEl.getBoundingClientRect();
 
   popover.style.position = "absolute";
-  // Center horizontally on the anchor
+
+  // Center horizontally — clamp to stay within container
   const anchorCenterX = rect.left + rect.width / 2 - parentRect.left + (scrollParent?.scrollLeft || 0);
-  popover.style.left = `${anchorCenterX}px`;
+  popover.style.left = `${Math.max(120, Math.min(anchorCenterX, (scrollParent?.clientWidth || 600) - 120))}px`;
   popover.style.transform = "translateX(-50%)";
-  // Position ABOVE the anchor
-  popover.style.top = `${rect.top - parentRect.top + (scrollParent?.scrollTop || 0) - 8}px`;
-  popover.style.transform += " translateY(-100%)";
+
+  // Check if there's space above (at least 80px from container top)
+  const spaceAbove = rect.top - parentRect.top;
+
+  if (spaceAbove > 80) {
+    // Position ABOVE
+    popover.style.top = `${rect.top - parentRect.top + (scrollParent?.scrollTop || 0) - 8}px`;
+    popover.style.transform += " translateY(-100%)";
+    popover.classList.remove("popover-below");
+    popover.classList.add("popover-above");
+  } else {
+    // Position BELOW
+    popover.style.top = `${rect.bottom - parentRect.top + (scrollParent?.scrollTop || 0) + 8}px`;
+    popover.classList.remove("popover-above");
+    popover.classList.add("popover-below");
+  }
 }
 
 function _updateDropdown(input, dropdown, excludeIds = []) {

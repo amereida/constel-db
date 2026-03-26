@@ -36,8 +36,8 @@
   --accent-light: #e8f4f0;
   --danger:       #b91c1c;
   --danger-light: #fde8e8;
-  --mark-bg:      rgba(45, 106, 90, 0.12);
-  --mark-bg-hover: rgba(45, 106, 90, 0.25);
+  --mark-bg:      rgba(45, 106, 90, 0.095);
+  --mark-bg-hover: rgba(45, 106, 90, 0.182);
   --icon-filter:  none;
 
   /* Tipografía */
