@@ -5,77 +5,92 @@ import { state, getExcerptsForSource } from "../state.js";
 
 /**
  * Renderiza el minimap vertical para un source.
+ * Uses rendered <mark> positions in the DOM instead of character offsets.
  * @param {HTMLElement} container - .reader-minimap-strip
  * @param {string} sourceId
- * @param {number} textLength - largo del texto en caracteres
- * @param {HTMLElement} readerContent - para sincronizar scroll
+ * @param {number} textLength - largo del texto en caracteres (for stats only)
+ * @param {HTMLElement} scrollContainer - .reader-text-panel for scroll sync
  */
-export function renderMinimap(container, sourceId, textLength, readerContent) {
-  if (!textLength) {
-    container.innerHTML = "";
-    return;
-  }
-
+export function renderMinimap(container, sourceId, textLength, scrollContainer) {
   const excerpts = getExcerptsForSource(sourceId);
 
-  // calcular % marcado
-  const markedChars = new Set();
-  for (const exc of excerpts) {
-    if (typeof exc.start === "number" && typeof exc.end === "number") {
-      for (let i = exc.start; i < exc.end && i < textLength; i++) {
-        markedChars.add(i);
-      }
-    }
-  }
-  const pct = textLength > 0 ? Math.round((markedChars.size / textLength) * 100) : 0;
-
-  // construir HTML — el minimap ocupa todo el container (100% alto)
+  // Build minimap HTML shell
   container.innerHTML = `
     <div class="minimap">
-      ${excerpts.map(exc => {
-        const top = (exc.start / textLength) * 100;
-        const height = Math.max(0.3, ((exc.end - exc.start) / textLength) * 100);
-        const color = getExcerptColor(exc);
-        return `<div class="minimap-band" style="top:${top}%;height:${height}%;background:${color}"></div>`;
-      }).join("")}
       <div class="minimap-viewport" id="minimapViewport"></div>
     </div>
     <div class="minimap-stats">
       <span>${excerpts.length}§</span>
-      <span>${pct}%</span>
+      <span id="minimapPct">0%</span>
     </div>
   `;
 
-  // sincronizar viewport con scroll del texto
-  const viewport = container.querySelector("#minimapViewport");
   const minimap = container.querySelector(".minimap");
+  const viewport = container.querySelector("#minimapViewport");
+  const pctEl = container.querySelector("#minimapPct");
 
-  function updateViewport() {
-    if (!readerContent || !viewport) return;
-    const scrollTop = readerContent.scrollTop;
-    const scrollHeight = readerContent.scrollHeight;
-    const clientHeight = readerContent.clientHeight;
+  // Wait for layout to settle, then compute band positions from DOM marks
+  requestAnimationFrame(() => {
+    if (!scrollContainer) return;
+    const scrollHeight = scrollContainer.scrollHeight;
     if (scrollHeight <= 0) return;
 
-    const top = (scrollTop / scrollHeight) * 100;
-    const height = (clientHeight / scrollHeight) * 100;
-    viewport.style.top = `${top}%`;
-    viewport.style.height = `${height}%`;
-  }
+    // Find all <mark> elements in the reader content
+    const textContent = scrollContainer.querySelector(".reader-content");
+    if (!textContent) return;
 
-  readerContent.addEventListener("scroll", updateViewport);
-  // initial sync after a tick (layout needs to settle)
-  requestAnimationFrame(updateViewport);
+    const marks = textContent.querySelectorAll("mark[data-excerpt]");
+    let totalMarkedHeight = 0;
 
-  // click en minimap → scroll al punto
-  if (minimap) {
+    marks.forEach(mark => {
+      const excId = mark.dataset.excerpt;
+      const exc = state.excerpts[excId];
+      const color = exc ? getExcerptColor(exc) : "var(--accent)";
+
+      // Get position relative to scroll container
+      const markRect = mark.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const markTop = mark.offsetTop || (markRect.top - containerRect.top + scrollContainer.scrollTop);
+      const markHeight = markRect.height;
+
+      const topPct = (markTop / scrollHeight) * 100;
+      const heightPct = Math.max(0.3, (markHeight / scrollHeight) * 100);
+
+      const band = document.createElement("div");
+      band.className = "minimap-band";
+      band.style.top = `${topPct}%`;
+      band.style.height = `${heightPct}%`;
+      band.style.background = color;
+      minimap.insertBefore(band, viewport);
+
+      totalMarkedHeight += markHeight;
+    });
+
+    // Update percentage
+    const pct = scrollHeight > 0 ? Math.round((totalMarkedHeight / scrollHeight) * 100) : 0;
+    if (pctEl) pctEl.textContent = `${pct}%`;
+
+    // Sync viewport indicator
+    function updateViewport() {
+      if (!viewport) return;
+      const st = scrollContainer.scrollTop;
+      const sh = scrollContainer.scrollHeight;
+      const ch = scrollContainer.clientHeight;
+      if (sh <= 0) return;
+      viewport.style.top = `${(st / sh) * 100}%`;
+      viewport.style.height = `${(ch / sh) * 100}%`;
+    }
+
+    scrollContainer.addEventListener("scroll", updateViewport);
+    updateViewport();
+
+    // Click minimap → scroll
     minimap.addEventListener("click", (e) => {
       const rect = minimap.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const ratio = y / rect.height;
-      readerContent.scrollTop = ratio * readerContent.scrollHeight;
+      const ratio = (e.clientY - rect.top) / rect.height;
+      scrollContainer.scrollTop = ratio * scrollContainer.scrollHeight;
     });
-  }
+  });
 }
 
 function getExcerptColor(exc) {

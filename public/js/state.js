@@ -267,12 +267,17 @@ export async function addConceptToExcerpt(excerptId, conceptId) {
 
 export async function removeConceptFromExcerpt(excerptId, conceptId) {
   try {
-    await api.concepts.unlinkExcerpt(conceptId, excerptId);
+    const result = await api.concepts.unlinkExcerpt(conceptId, excerptId);
     const exc = state.excerpts[excerptId];
     if (exc) {
       exc.conceptIds = (exc.conceptIds || []).filter(id => id !== conceptId);
+      // Rule: no orphan excerpts — backend already deleted if 0 concepts
+      if (exc.conceptIds.length === 0) {
+        delete state.excerpts[excerptId];
+      }
     }
     notify();
+    return result;
   } catch (e) {
     console.error("Error unlinking concept from excerpt:", e);
   }
@@ -308,15 +313,20 @@ export async function addConcept(label, themeId = null) {
 
 export async function removeConcept(id) {
   try {
-    await api.concepts.delete(id);
-    // Remove from local excerpts
-    for (const exc of Object.values(state.excerpts)) {
-      if (exc.conceptIds) {
+    const result = await api.concepts.delete(id);
+    // Update local state: remove concept from excerpts, delete orphans
+    for (const [excId, exc] of Object.entries(state.excerpts)) {
+      if (exc.conceptIds?.includes(id)) {
         exc.conceptIds = exc.conceptIds.filter(cid => cid !== id);
+        // Rule: no orphan excerpts — if 0 concepts left, server already deleted it
+        if (exc.conceptIds.length === 0) {
+          delete state.excerpts[excId];
+        }
       }
     }
     delete state.concepts[id];
     notify();
+    return result;
   } catch (e) {
     console.error("Error removing concept:", e);
     throw e;

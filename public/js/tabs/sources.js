@@ -177,6 +177,15 @@ function renderDetailDynamic(excerpts, sourceId) {
   const concepts = [...conceptMap.values()];
 
   dynEl.innerHTML = `
+    ${concepts.length ? `
+      <div class="source-detail-section">
+        <h3>${concepts.length} conceptos</h3>
+        <div class="source-detail-concepts">
+          ${concepts.map(c => `<span class="source-concept-tag">${escapeHtml(c.label)}</span>`).join("")}
+        </div>
+      </div>
+    ` : ""}
+
     ${excerpts.length ? `
       <div class="source-detail-section">
         <h3>${excerpts.length} secciones
@@ -198,15 +207,6 @@ function renderDetailDynamic(excerpts, sourceId) {
     ` : `
       <p class="placeholder" style="padding:var(--space-md) 0">Sin secciones aun</p>
     `}
-
-    ${concepts.length ? `
-      <div class="source-detail-section">
-        <h3>${concepts.length} conceptos</h3>
-        <div class="source-detail-concepts">
-          ${concepts.map(c => `<span class="source-concept-tag">${escapeHtml(c.label)}</span>`).join("")}
-        </div>
-      </div>
-    ` : ""}
   `;
 
   // Event: refresh

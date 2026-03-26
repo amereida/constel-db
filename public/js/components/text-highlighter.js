@@ -50,22 +50,38 @@ marked.use(markedFootnote({ prefixId: "fn-" }));
  *   indentation for poetry, not for code.
  */
 function preprocessSource(source) {
-  // 1. Convert ```poem...``` pairs to :::poem...::: so marked's fences
+  // 1. Convert milestones to <mark> HTML BEFORE marked parses.
+  //    This ensures marks work inside blockquotes, lists, headers, etc.
+  let result = source.replace(/<!-- §b (\S+) -->/g, (_, id) => {
+    const exc = state.excerpts[id];
+    const labels = exc
+      ? (exc.conceptIds.map(cid => state.concepts[cid]?.label).filter(Boolean).join(", ") || "sin concepto")
+      : "";
+    const color = exc ? getExcerptColor(exc) : null;
+    let bg;
+    if (color && color.startsWith("#")) {
+      bg = `${color}40`;
+    } else {
+      bg = `color-mix(in srgb, var(--accent) 25%, transparent)`;
+    }
+    return `<mark data-excerpt="${escapeHtml(id)}" data-concepts="${escapeHtml(labels)}" style="--mark-color:${color || "var(--accent)"};background:${bg}">`;
+  });
+  result = result.replace(/<!-- §e (\S+) -->/g, "</mark>");
+
+  // 2. Convert ```poem...``` pairs to :::poem...::: so marked's fences
   //    tokenizer ignores them. Our poemBlock extension handles :::poem.
-  let result = source.replace(/^```poem\n([\s\S]*?)\n```/gm, (match, inner) => {
+  result = result.replace(/^```poem\n([\s\S]*?)\n```/gm, (match, inner) => {
     return `:::poem\n${inner}\n:::`;
   });
-  // 2. Replace leading 4+ spaces with nbsp to prevent indented code blocks
+
+  // 3. Replace leading 4+ spaces with nbsp to prevent indented code blocks
   result = result.replace(/^( {4,})/gm, (m) => "\u00A0".repeat(m.length));
   return result;
 }
 
-// ── Milestone extensions ─────────────────────────────────────────────────
-// Milestones in the markdown source: <!-- §b excerpt_id --> ... <!-- §e excerpt_id -->
-// These are parsed as inline tokens and rendered as <mark> open/close tags.
-
-// ```poem blocks MUST be registered first so they take priority over
-// marked's built-in fences tokenizer for ```poem specifically.
+// ── Poem block extension ─────────────────────────────────────────────────
+// :::poem...::: blocks (converted from ```poem by preprocessSource) are
+// rendered as <div class="poem"> with inline markdown parsed inside.
 marked.use({
   extensions: [
     {
@@ -89,63 +105,6 @@ marked.use({
       },
       renderer(token) {
         return `<div class="poem">${this.parser.parseInline(token.tokens)}</div>`;
-      },
-    },
-  ],
-});
-
-marked.use({
-  extensions: [
-    {
-      name: "milestoneBegin",
-      level: "inline",
-      start(src) {
-        return src.indexOf("<!-- §b ");
-      },
-      tokenizer(src) {
-        const match = src.match(/^<!-- §b (\S+) -->/);
-        if (match) {
-          return {
-            type: "milestoneBegin",
-            raw: match[0],
-            id: match[1],
-          };
-        }
-      },
-      renderer(token) {
-        const exc = state.excerpts[token.id];
-        const color = exc ? getExcerptColor(exc) : null;
-        const labels = exc
-          ? exc.conceptIds.map(cid => state.concepts[cid]?.label).filter(Boolean).join(", ")
-          : "";
-        // If color is a hex value, append alpha. Otherwise use CSS color-mix for var() colors.
-        let bg;
-        if (color && color.startsWith("#")) {
-          bg = `${color}26`;
-        } else {
-          bg = `color-mix(in srgb, var(--accent) 15%, transparent)`;
-        }
-        return `<mark data-excerpt="${escapeHtml(token.id)}" data-concepts="${escapeHtml(labels)}" style="--mark-color:${color || "var(--accent)"};background:${bg}">`;
-      },
-    },
-    {
-      name: "milestoneEnd",
-      level: "inline",
-      start(src) {
-        return src.indexOf("<!-- §e ");
-      },
-      tokenizer(src) {
-        const match = src.match(/^<!-- §e (\S+) -->/);
-        if (match) {
-          return {
-            type: "milestoneEnd",
-            raw: match[0],
-            id: match[1],
-          };
-        }
-      },
-      renderer() {
-        return "</mark>";
       },
     },
   ],
@@ -321,7 +280,7 @@ function attachMarkListeners(container, onExcerptClick) {
   container.querySelectorAll("mark[data-excerpt]").forEach(mark => {
     mark.addEventListener("click", (e) => {
       e.stopPropagation();
-      onExcerptClick(mark.dataset.excerpt);
+      onExcerptClick(mark.dataset.excerpt, mark);
     });
 
     mark.addEventListener("mouseenter", () => {
@@ -536,11 +495,44 @@ function escapeHtml(s) {
 
 /**
  * Scroll to an excerpt mark with visual feedback.
+ * Falls back to text search if no milestone <mark> exists.
  */
 export function scrollToExcerpt(container, excerptId) {
-  const mark = container.querySelector(`mark[data-excerpt="${excerptId}"]`);
+  // Try milestone-based mark first
+  let mark = container.querySelector(`mark[data-excerpt="${excerptId}"]`);
+
+  // Fallback: find by excerpt text in the DOM
+  if (!mark) {
+    const exc = Object.values(state.excerpts).find(e => e.id === excerptId);
+    if (exc?.text) {
+      const needle = exc.text.slice(0, 60).trim();
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        if (walker.currentNode.textContent.includes(needle)) {
+          // Wrap in a temporary highlight
+          const range = document.createRange();
+          range.selectNodeContents(walker.currentNode);
+          const span = document.createElement("span");
+          span.className = "highlight-active";
+          range.surroundContents(span);
+          mark = span;
+          setTimeout(() => {
+            span.replaceWith(...span.childNodes);
+          }, 2500);
+          break;
+        }
+      }
+    }
+  }
+
   if (mark) {
-    mark.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Scroll within the reader-text-panel container
+    const scroller = mark.closest(".reader-text-panel") || container;
+    const markRect = mark.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const offset = markRect.top - scrollerRect.top + scroller.scrollTop - (scroller.clientHeight / 2);
+    scroller.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
+
     mark.classList.add("highlight-active");
     setTimeout(() => mark.classList.remove("highlight-active"), 2000);
   }

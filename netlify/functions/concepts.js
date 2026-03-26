@@ -1,6 +1,14 @@
 import { getDb } from "./utils/db.js";
 import { requireAuth, isAdmin, json, error, logActivity } from "./utils/auth.js";
 
+/** Remove milestone comments for a given excerpt ID from source content. */
+function removeMilestones(content, excerptId) {
+  const esc = excerptId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return content
+    .replace(new RegExp(`<!-- §b ${esc} -->`, "g"), "")
+    .replace(new RegExp(`<!-- §e ${esc} -->`, "g"), "");
+}
+
 /**
  * GET    /api/concepts                    — list all concepts with counts
  * GET    /api/concepts?id=X               — single concept detail
@@ -82,8 +90,29 @@ export default async (req, context) => {
       DELETE FROM concept_excerpts
       WHERE concept_id = ${concept_id} AND excerpt_id = ${excerpt_id}
     `;
+
+    // Rule: no orphan excerpts. If excerpt has 0 concepts, delete it + milestones.
+    const [remaining] = await sql`
+      SELECT count(*) AS cnt FROM concept_excerpts WHERE excerpt_id = ${excerpt_id}
+    `;
+    let excerpt_deleted = false;
+    if (parseInt(remaining.cnt) === 0) {
+      const [exc] = await sql`SELECT source_id FROM excerpts WHERE id = ${excerpt_id}`;
+      if (exc) {
+        const [src] = await sql`SELECT content FROM sources WHERE id = ${exc.source_id}`;
+        if (src?.content) {
+          const cleaned = removeMilestones(src.content, excerpt_id);
+          if (cleaned !== src.content) {
+            await sql`UPDATE sources SET content = ${cleaned} WHERE id = ${exc.source_id}`;
+          }
+        }
+      }
+      await sql`DELETE FROM excerpts WHERE id = ${excerpt_id}`;
+      excerpt_deleted = true;
+    }
+
     await logActivity(user.id, "unlink_excerpt", "concept", concept_id, { excerpt_id });
-    return json({ ok: true });
+    return json({ ok: true, excerpt_deleted });
   }
 
   // POST — create
@@ -118,16 +147,53 @@ export default async (req, context) => {
     return json(updated);
   }
 
-  // DELETE — admin only
+  // DELETE — admin only. Deletes concept and orphaned excerpts (those with no remaining concepts).
   if (req.method === "DELETE") {
     const id = url.searchParams.get("id");
     if (!id) return error("ID requerido");
     if (!(await isAdmin(user.id))) {
       return error("Solo administradores pueden eliminar conceptos", 403);
     }
+
+    // Find all excerpts linked to this concept
+    const linkedExcerpts = await sql`
+      SELECT e.id, e.source_id FROM concept_excerpts ce
+      JOIN excerpts e ON e.id = ce.excerpt_id
+      WHERE ce.concept_id = ${id}
+    `;
+
+    // Delete the concept (CASCADE removes concept_excerpts rows)
     await sql`DELETE FROM concepts WHERE id = ${id}`;
-    await logActivity(user.id, "delete_concept", "concept", id);
-    return json({ ok: true });
+
+    // Now check which excerpts became orphans (0 concepts remaining)
+    let orphansDeleted = 0;
+    for (const exc of linkedExcerpts) {
+      const [remaining] = await sql`
+        SELECT count(*) AS cnt FROM concept_excerpts WHERE excerpt_id = ${exc.id}
+      `;
+      if (parseInt(remaining.cnt) === 0) {
+        // Orphan: remove milestones from source and delete excerpt
+        const [src] = await sql`SELECT content FROM sources WHERE id = ${exc.source_id}`;
+        if (src?.content) {
+          const cleaned = removeMilestones(src.content, exc.id);
+          if (cleaned !== src.content) {
+            await sql`UPDATE sources SET content = ${cleaned} WHERE id = ${exc.source_id}`;
+          }
+        }
+        await sql`DELETE FROM excerpts WHERE id = ${exc.id}`;
+        orphansDeleted++;
+      }
+    }
+
+    await logActivity(user.id, "delete_concept", "concept", id, {
+      linked_excerpts: linkedExcerpts.length,
+      orphans_deleted: orphansDeleted
+    });
+    return json({
+      ok: true,
+      linked_excerpts: linkedExcerpts.length,
+      orphans_deleted: orphansDeleted
+    });
   }
 
   return error("Método no soportado", 405);

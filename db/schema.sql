@@ -8,6 +8,7 @@ CREATE TABLE users (
   name          TEXT NOT NULL DEFAULT '',
   avatar_url    TEXT,
   role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  profile_url   TEXT,                         -- e.g. Casiopea wiki page URL
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_login_at TIMESTAMPTZ
 );

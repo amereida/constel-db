@@ -24,8 +24,6 @@ let autocompleteController = null;
 let glossController = null;
 let selectedConceptId = null;
 let lastExcerptHash = "";
-let marksVisible = true;
-
 export function initReaderTab() {
   const popup = document.getElementById("excerptPopup");
   const readerContent = document.getElementById("readerTextContent");
@@ -63,8 +61,13 @@ export function initReaderTab() {
     if (!selectedConceptId) return;
     const c = state.concepts[selectedConceptId];
     if (!c) return;
-    const excerptCount = Object.values(state.excerpts).filter(e => e.conceptIds?.includes(selectedConceptId)).length;
-    confirmMsg.textContent = `¿Eliminar «${c.label}»? Tiene ${excerptCount} sección${excerptCount !== 1 ? "es" : ""}.`;
+    const allLinked = Object.values(state.excerpts).filter(e => e.conceptIds?.includes(selectedConceptId));
+    const orphanCount = allLinked.filter(e => e.conceptIds.length === 1).length;
+    const sharedCount = allLinked.length - orphanCount;
+    let msg = `¿Eliminar «${c.label}»?`;
+    if (orphanCount > 0) msg += ` Se eliminarán ${orphanCount} sección${orphanCount !== 1 ? "es" : ""} exclusiva${orphanCount !== 1 ? "s" : ""}.`;
+    if (sharedCount > 0) msg += ` ${sharedCount} sección${sharedCount !== 1 ? "es" : ""} compartida${sharedCount !== 1 ? "s" : ""} se conservarán.`;
+    confirmMsg.textContent = msg;
     confirmOverlay.classList.add("visible");
   });
 
@@ -123,7 +126,7 @@ export function initReaderTab() {
   });
 
   initResizer();
-  initMarksToggle();
+  initMarksSwitch();
 }
 
 export async function onReaderActivated(params) {
@@ -207,15 +210,12 @@ function renderTextAndMinimap(sourceId, text) {
   // The scrollable container is the parent .reader-text-panel
   const scrollContainer = document.getElementById("readerText");
 
-  renderHighlightedText(readerContent, text, sourceId, (excerptId) => {
-    const exc = state.excerpts[excerptId];
-    if (exc && exc.conceptIds.length > 0) {
-      openConceptDetail(exc.conceptIds[0]);
-    }
+  renderHighlightedText(readerContent, text, sourceId, (excerptId, markEl) => {
+    showExcerptPopover(excerptId, markEl);
   });
 
   // preserve marks visibility state after re-render
-  readerContent.classList.toggle("marks-hidden", !marksVisible);
+  applyMarksVisibility();
 
   renderMinimap(minimapContainer, sourceId, text.length, scrollContainer);
 }
@@ -338,11 +338,8 @@ function renderConceptDetailExcerpts(conceptId) {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const excId = btn.dataset.excId;
+      // Backend handles orphan cleanup: if excerpt has 0 concepts, it gets deleted
       removeConceptFromExcerpt(excId, conceptId);
-      const exc = state.excerpts[excId];
-      if (exc && exc.conceptIds.length === 0) {
-        removeExcerpt(excId);
-      }
     });
   });
 }
@@ -418,6 +415,151 @@ function computeExcerptHash() {
     + "|c:" + Object.values(state.concepts).map(c => c.id + c.label).join(",");
 }
 
+// ── Excerpt popover (click on mark) ──────────────────────────────────
+
+function showExcerptPopover(excerptId, markEl) {
+  // Close any existing popover
+  closeExcerptPopover();
+
+  const exc = state.excerpts[excerptId];
+  if (!exc) return;
+
+  // Also open the concept detail sidebar for the first concept
+  if (exc.conceptIds.length > 0) {
+    openConceptDetail(exc.conceptIds[0]);
+  }
+
+  const concepts = exc.conceptIds
+    .map(cid => state.concepts[cid])
+    .filter(Boolean);
+
+  const popover = document.createElement("div");
+  popover.className = "excerpt-popover";
+  popover.innerHTML = `
+    <div class="excerpt-popover-concepts">
+      ${concepts.map(c => `
+        <span class="excerpt-popover-tag" data-concept-id="${c.id}">${escapeHtml(c.label)}</span>
+      `).join("")}
+    </div>
+    <div class="excerpt-popover-add">
+      <input type="text" class="excerpt-popover-input" placeholder="+ concepto" autocomplete="off" />
+      <div class="excerpt-popover-dropdown" hidden></div>
+    </div>
+  `;
+
+  // Position below the mark
+  const rect = markEl.getBoundingClientRect();
+  const scrollParent = markEl.closest(".reader-text-panel");
+  const parentRect = scrollParent?.getBoundingClientRect() || { left: 0, top: 0 };
+
+  popover.style.position = "absolute";
+  popover.style.left = `${rect.left - parentRect.left + scrollParent.scrollLeft}px`;
+  popover.style.top = `${rect.bottom - parentRect.top + scrollParent.scrollTop + 4}px`;
+
+  // Append to the scroll container so it scrolls with the text
+  scrollParent?.appendChild(popover);
+
+  // Click concept tag → open its detail
+  popover.querySelectorAll(".excerpt-popover-tag").forEach(tag => {
+    tag.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openConceptDetail(tag.dataset.conceptId);
+    });
+  });
+
+  // Input: add concept to this excerpt
+  const input = popover.querySelector(".excerpt-popover-input");
+  const dropdown = popover.querySelector(".excerpt-popover-dropdown");
+
+  input.addEventListener("keyup", (e) => {
+    const val = input.value.trim().toLowerCase();
+    if (val.length < 1) { dropdown.hidden = true; return; }
+
+    // Fuzzy match existing concepts
+    const matches = Object.values(state.concepts)
+      .filter(c => c.label.toLowerCase().includes(val) && !exc.conceptIds.includes(c.id))
+      .slice(0, 6);
+
+    if (matches.length === 0 && val.length >= 2) {
+      dropdown.innerHTML = `<div class="excerpt-popover-option new" data-label="${escapeHtml(val)}">+ crear "${escapeHtml(val)}"</div>`;
+      dropdown.hidden = false;
+    } else if (matches.length > 0) {
+      dropdown.innerHTML = matches.map(c =>
+        `<div class="excerpt-popover-option" data-concept-id="${c.id}">${escapeHtml(c.label)}</div>`
+      ).join("");
+      // Also show "create new" option if no exact match
+      if (!matches.find(c => c.label.toLowerCase() === val)) {
+        dropdown.innerHTML += `<div class="excerpt-popover-option new" data-label="${escapeHtml(val)}">+ crear "${escapeHtml(val)}"</div>`;
+      }
+      dropdown.hidden = false;
+    } else {
+      dropdown.hidden = true;
+    }
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeExcerptPopover(); return; }
+    if (e.key === "Enter") {
+      const val = input.value.trim();
+      if (val) linkConceptToExcerpt(excerptId, val, markEl);
+    }
+  });
+
+  // Click on dropdown option
+  dropdown.addEventListener("click", (e) => {
+    const opt = e.target.closest(".excerpt-popover-option");
+    if (!opt) return;
+    e.stopPropagation();
+    if (opt.dataset.conceptId) {
+      addConceptToExcerpt(excerptId, opt.dataset.conceptId);
+      closeExcerptPopover();
+      showToast(`+ ${opt.textContent.trim()}`);
+    } else if (opt.dataset.label) {
+      linkConceptToExcerpt(excerptId, opt.dataset.label, markEl);
+    }
+  });
+
+  // Focus input
+  setTimeout(() => input.focus(), 50);
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener("click", _popoverOutsideClick);
+  }, 100);
+}
+
+function _popoverOutsideClick(e) {
+  const popover = document.querySelector(".excerpt-popover");
+  if (popover && !popover.contains(e.target) && !e.target.closest("mark[data-excerpt]")) {
+    closeExcerptPopover();
+  }
+}
+
+function closeExcerptPopover() {
+  document.querySelectorAll(".excerpt-popover").forEach(el => el.remove());
+  document.removeEventListener("click", _popoverOutsideClick);
+}
+
+async function linkConceptToExcerpt(excerptId, label, markEl) {
+  if (!requireLogin()) return;
+  try {
+    let concept = findConceptByLabel(label);
+    let conceptId;
+    if (concept) {
+      conceptId = concept.id;
+    } else {
+      conceptId = await addConcept(label);
+    }
+    await addConceptToExcerpt(excerptId, conceptId);
+    closeExcerptPopover();
+    showToast(`+ ${label}`);
+    openConceptDetail(conceptId);
+  } catch (err) {
+    console.error("Error linking concept:", err);
+    showToast(`Error: ${err.message}`);
+  }
+}
+
 // ── Create excerpt ────────────────────────────────────────────────────
 
 async function handleCreateExcerpt({ text, conceptLabel }) {
@@ -451,6 +593,8 @@ async function handleCreateExcerpt({ text, conceptLabel }) {
     const updatedSource = insertMilestones(sourceRaw, text, excerptId);
     if (updatedSource) {
       await updateSourceContent(currentSourceId, updatedSource);
+    } else {
+      console.warn("insertMilestones failed: text not found in source for", excerptId);
     }
 
     showToast(`§ [${conceptLabel}]`);
@@ -545,38 +689,54 @@ function showToast(message) {
   toast.addEventListener("animationend", () => toast.remove());
 }
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const EYE_OPEN_PATHS = [
-  { d: "M17.7,13.5c0,2-1.6,3.7-3.7,3.7s-3.7-1.6-3.7-3.7,1.6-3.7,3.7-3.7,3.7,1.6,3.7,3.7" },
-  { d: "M14,10.9c3.9,0,7.6,1.2,10.7,3.2-2.2-3.6-6.1-6.1-10.7-6.1s-8.5,2.4-10.7,6.1c3.1-2,6.7-3.2,10.7-3.2" },
-  { d: "M21,17.8c-2.2.8-4.5,1.3-7,1.3s-4.8-.5-7-1.3c2,1.4,4.4,2.3,7,2.3s5-.8,7-2.3" },
-  { d: "M16.7,12.3c0,.8-.7,1.5-1.5,1.5s-1.5-.7-1.5-1.5.7-1.5,1.5-1.5,1.5.7,1.5,1.5", cls: "eye-glint" },
-];
-const EYE_CLOSE_PATHS = [
-  { d: "M14,17c3.9,0,7.6-1.2,10.7-3.2-2.2,3.6-6.1,6.1-10.7,6.1s-8.5-2.4-10.7-6.1c3.1,2,6.7,3.2,10.7,3.2" },
-];
+// Marks visibility: "all" | "mine" | "none"
+let marksMode = "all";
 
-function setSvgPaths(svg, paths) {
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
-  for (const p of paths) {
-    const el = document.createElementNS(SVG_NS, "path");
-    el.setAttribute("d", p.d);
-    if (p.cls) el.setAttribute("class", p.cls);
-    svg.appendChild(el);
+function initMarksSwitch() {
+  const container = document.getElementById("marksSwitch");
+  if (!container) return;
+
+  const btns = container.querySelectorAll(".marks-switch-btn");
+  const indicator = container.querySelector(".marks-switch-indicator");
+
+  function updateIndicator() {
+    const activeBtn = container.querySelector(".marks-switch-btn.active");
+    if (activeBtn && indicator) {
+      indicator.style.width = activeBtn.offsetWidth + "px";
+      indicator.style.transform = `translateX(${activeBtn.offsetLeft - 2}px)`;
+    }
   }
+
+  btns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      btns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      marksMode = btn.dataset.marks;
+      updateIndicator();
+      applyMarksVisibility();
+    });
+  });
+
+  // Set initial indicator position after render
+  requestAnimationFrame(updateIndicator);
 }
 
-function initMarksToggle() {
-  const btn = document.getElementById("marksToggle");
-  const icon = document.getElementById("marksToggleIcon");
-  if (!btn || !icon) return;
+function applyMarksVisibility() {
+  const readerContent = document.getElementById("readerTextContent");
+  if (!readerContent) return;
 
-  btn.addEventListener("click", () => {
-    marksVisible = !marksVisible;
-    setSvgPaths(icon, marksVisible ? EYE_OPEN_PATHS : EYE_CLOSE_PATHS);
-    const readerContent = document.getElementById("readerTextContent");
-    if (readerContent) {
-      readerContent.classList.toggle("marks-hidden", !marksVisible);
+  const userId = state.currentUser?.id;
+
+  readerContent.querySelectorAll("mark[data-excerpt]").forEach(mark => {
+    if (marksMode === "none") {
+      mark.classList.add("mark-hidden");
+    } else if (marksMode === "mine" && userId) {
+      const excId = mark.dataset.excerpt;
+      const exc = state.excerpts[excId];
+      const isMine = exc?.createdBy === userId;
+      mark.classList.toggle("mark-hidden", !isMine);
+    } else {
+      mark.classList.remove("mark-hidden");
     }
   });
 }

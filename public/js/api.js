@@ -106,6 +106,8 @@ export const auth = {
   sync: () => request("POST", "/auth"),
   /** Get current user info */
   me: () => request("GET", "/auth"),
+  /** Update own profile (name, profile_url) */
+  updateProfile: (data) => request("PUT", "/auth/profile", data),
 };
 
 // ── Sources ──────────────────────────────────────────────────────────────────

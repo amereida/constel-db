@@ -1,331 +1,306 @@
-# con§tel-db -- Arquitectura
+# Arquitectura de con§tel-db
 
 ## Vision general
 
-con§tel-db es una herramienta colaborativa de analisis tematico de corpus textuales. Un grupo de lectores trabaja sobre un corpus compartido: seleccionan fragmentos, les asignan conceptos, y agrupan conceptos en temas. El resultado es un mapa de relaciones conceptuales que emerge de la lectura colectiva.
+con§tel-db es una herramienta colaborativa de analisis tematico de corpus textuales.
+Un grupo de lectores trabaja sobre un corpus compartido: seleccionan fragmentos,
+les asignan conceptos, y agrupan conceptos en temas. El resultado es un mapa de
+relaciones conceptuales que emerge de la lectura colectiva.
 
-## Stack
+## Pipeline de renderizado
+
+El contenido de cada fuente se almacena como **markdown con milestones embebidos**:
+
+```
+Texto normal <!-- §b exc_123 -->texto marcado<!-- §e exc_123 --> mas texto.
+```
 
 ```mermaid
-graph TB
-    subgraph Cliente["Navegador (Vanilla JS, sin build)"]
-        UI["tabs: sources / reader / themes"]
-        State["state.js — cache + pub/sub"]
-        API["api.js — fetch + JWT"]
-    end
-
-    subgraph Netlify["Netlify (CDN + Functions)"]
-        Static["CDN — archivos estaticos"]
-        Functions["Functions — Node.js serverless"]
-        Identity["Identity — Google OAuth + JWT"]
-    end
-
-    subgraph DB["Neon (Postgres serverless)"]
-        Tables["users, sources, excerpts,\nconcepts, themes, notes,\nconcept_excerpts, theme_concepts,\nactivity_log"]
-    end
-
-    UI --> State
-    State --> API
-    API -- "fetch /api/*" --> Functions
-    API -- "JWT token" --> Identity
-    Functions -- "postgres (porsager)" --> Tables
-    Identity -- "user sub + email" --> Functions
-    Cliente -- "HTML/CSS/JS" --> Static
+flowchart TD
+    A[Source markdown\ncon milestones] --> B[preprocessSource]
+    B --> B1["1. Milestones → &lt;mark&gt; HTML"]
+    B --> B2["2. ```poem → :::poem"]
+    B --> B3["3. Indent 4+ → nbsp"]
+    B1 --> C[marked.parse]
+    B2 --> C
+    B3 --> C
+    C --> C1[poemBlock extension]
+    C --> C2[markedFootnote]
+    C --> C3[standard markdown]
+    C1 --> D[smartQuotes]
+    C2 --> D
+    C3 --> D
+    D --> D1["\" → curly quotes"]
+    D --> D2["-- → em dash"]
+    D --> D3["... → ellipsis"]
+    D1 --> E["HTML final con &lt;mark&gt; interactivos"]
+    D2 --> E
+    D3 --> E
 ```
+
+### Por que milestones se procesan ANTES de marked
+
+Los milestones se convierten a `<mark>` HTML antes de que marked procese el texto.
+Esto garantiza que funcionen dentro de **cualquier contexto markdown**:
+blockquotes, listas, headers, poem blocks.
+
+Si se usaran como inline extensions de marked, no funcionarian dentro de
+blockquotes ni otros bloques donde marked no ejecuta extensiones inline.
 
 ## Modelo de datos
 
 ```mermaid
 erDiagram
     users {
-        text id PK "Identity sub"
+        text id PK "Identity sub UUID"
         text email UK
         text name
-        text avatar_url
         text role "user | admin"
+        text profile_url
     }
-
     sources {
-        text id PK "src_ + md5"
-        text filename
+        text id PK
         text title
         text author
         text date
-        text content "texto completo"
+        text content "markdown con milestones"
         int word_count
         text uploaded_by FK
     }
-
     excerpts {
-        text id PK "exc_ + md5"
+        text id PK
         text source_id FK
-        text text "fragmento seleccionado"
-        int start_pos
-        int end_pos
+        text text
         text created_by FK
     }
-
     concepts {
-        text id PK "con_ + md5"
-        text label UK
+        text id PK
+        text label UK "case-insensitive"
         text created_by FK
     }
-
     themes {
-        text id PK "thm_ + md5"
-        text label UK
-        text color
+        text id PK
+        text name
+        text color "hex"
         text created_by FK
     }
-
     notes {
-        text id PK "note_ + md5"
+        text id PK
         text theme_id FK "nullable"
         text concept_id FK "nullable"
         text text
         text created_by FK
     }
-
     concept_excerpts {
         text concept_id FK
         text excerpt_id FK
         text linked_by FK
     }
-
     theme_concepts {
         text theme_id FK
         text concept_id FK
         text added_by FK
     }
 
-    activity_log {
-        bigint id PK
-        text user_id FK
-        text action
-        text entity_type
-        text entity_id
-        jsonb detail
-    }
-
     users ||--o{ sources : "uploaded_by"
     users ||--o{ excerpts : "created_by"
     users ||--o{ concepts : "created_by"
-    users ||--o{ themes : "created_by"
-    users ||--o{ notes : "created_by"
     sources ||--o{ excerpts : "source_id"
-    concepts ||--o{ concept_excerpts : "concept_id"
-    excerpts ||--o{ concept_excerpts : "excerpt_id"
+    excerpts ||--|{ concept_excerpts : "excerpt_id"
+    concepts ||--|{ concept_excerpts : "concept_id"
     themes ||--o{ theme_concepts : "theme_id"
     concepts ||--o{ theme_concepts : "concept_id"
     themes ||--o{ notes : "theme_id"
     concepts ||--o{ notes : "concept_id"
-    users ||--o{ activity_log : "user_id"
 ```
 
-## Flujo de datos en el frontend
+## Regla fundamental: no hay secciones huerfanas
+
+Una seccion (excerpt) **siempre** tiene al menos 1 concepto asociado.
+
+| Operacion | Donde se aplica | Logica |
+|-----------|-----------------|--------|
+| Crear seccion | `handleCreateExcerpt` | Se crea con concepto obligatorio |
+| Desvincular concepto | `concepts.js` unlink-excerpt | Si excerpt queda con 0 conceptos: elimina excerpt + milestones |
+| Eliminar concepto | `concepts.js` DELETE | Para cada excerpt: si queda con 0 conceptos, elimina |
+| Frontend | `state.js` removeConceptFromExcerpt | Limpia state local si 0 conceptos |
+| Frontend | `state.js` removeConcept | Limpia excerpts huerfanos del state |
+
+## Flujos de operaciones
+
+### Crear seccion
 
 ```mermaid
 sequenceDiagram
-    participant U as Usuario
-    participant Tab as Tab activo
+    actor U as Usuario
+    participant R as reader.js
     participant S as state.js
-    participant A as api.js
-    participant F as Netlify Function
-    participant DB as Postgres
+    participant API as Backend
+    participant DB as PostgreSQL
 
-    Note over U,DB: Boot (al cargar la pagina)
-    A->>F: POST /api/auth (sync user)
-    F->>DB: UPSERT user
-    A->>F: GET /sources, /concepts, /themes, /excerpts
-    F->>DB: SELECT * ...
-    DB-->>F: rows
-    F-->>A: JSON
-    A-->>S: indexar por ID en state.*
-    S-->>Tab: notify() → re-render
-
-    Note over U,DB: Crear un excerpt
-    U->>Tab: Selecciona texto + escribe concepto
-    Tab->>S: addExcerpt(data)
-    S->>S: optimistic update (render inmediato)
-    S->>A: POST /api/excerpts
-    A->>F: { source_id, text, start_pos, end_pos, concept_ids }
-    F->>DB: INSERT excerpt + concept_excerpts
-    DB-->>F: excerpt creado
-    F-->>A: JSON
-    A-->>S: reemplazar temp → real
-    S-->>Tab: notify() → actualizar marks
+    U->>R: Selecciona texto + concepto
+    R->>S: addConcept(label)
+    S->>API: POST /concepts
+    API->>DB: INSERT concepts
+    DB-->>API: concept.id
+    API-->>S: concept
+    R->>S: addExcerpt({sourceId, text, conceptIds})
+    S->>API: POST /excerpts
+    API->>DB: INSERT excerpts + concept_excerpts
+    DB-->>API: excerpt.id
+    API-->>S: excerpt
+    R->>R: insertMilestones(source, text, excId)
+    R->>S: updateSourceContent(sourceId, updated)
+    S->>API: PUT /sources
+    API->>DB: UPDATE sources.content
+    R->>R: re-render con nueva marca
 ```
 
-## Permisos y ownership
+### Agregar concepto a seccion existente
 
 ```mermaid
-graph LR
-    subgraph User["Rol: user"]
-        U1["Crear excerpts, conceptos, temas, notas"]
-        U2["Agregar conceptos a excerpts ajenos"]
-        U3["Agregar conceptos a temas ajenos"]
-        U4["Eliminar solo lo propio"]
-    end
+sequenceDiagram
+    actor U as Usuario
+    participant R as reader.js
+    participant S as state.js
+    participant API as Backend
 
-    subgraph Admin["Rol: admin"]
-        A1["Todo lo de user"]
-        A2["Importar/editar/eliminar fuentes"]
-        A3["Eliminar cualquier entidad"]
-        A4["Gestionar usuarios y roles"]
-    end
+    U->>R: Click en mark → popover → concepto
+    R->>S: addConceptToExcerpt(excerptId, conceptId)
+    S->>API: POST /concepts/link-excerpt
+    API-->>S: ok
+    S->>S: excerpt.conceptIds.push(conceptId)
+    S->>R: notify → re-render tooltip
 ```
 
-Cada entidad registra quien la creo:
-
-| Campo | Tabla | Significado |
-|-------|-------|-------------|
-| `uploaded_by` | sources | quien importo la fuente |
-| `created_by` | excerpts, concepts, themes, notes | quien la creo |
-| `linked_by` | concept_excerpts | quien vinculo concepto con seccion |
-| `added_by` | theme_concepts | quien agrego concepto al tema |
-
-## API REST
-
-Todos los endpoints viven bajo `/api/*` (redirect via `netlify.toml`).
-
-**Autenticacion:**
-- GET = publico (sin JWT)
-- POST/PUT/DELETE = requieren `Authorization: Bearer <JWT>` de Netlify Identity
-- En dev local, si no hay JWT se usa el usuario de `.env` (`DEV_USER_*`)
-
-### Sources
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/sources` | -- | Lista fuentes (sin content, con excerpt_count) |
-| GET | `/api/sources?id=X` | -- | Fuente con content |
-| POST | `/api/sources` | admin | Crear fuente |
-| PUT | `/api/sources` | admin | Actualizar fuente |
-| DELETE | `/api/sources?id=X` | admin | Eliminar fuente + cascada |
-
-### Excerpts
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/excerpts` | -- | Todos los excerpts (boot) |
-| GET | `/api/excerpts?source_id=X` | -- | Excerpts de una fuente |
-| GET | `/api/excerpts?concept_id=X` | -- | Excerpts de un concepto |
-| POST | `/api/excerpts` | JWT | Crear excerpt + vincular conceptos |
-| DELETE | `/api/excerpts?id=X` | JWT | Eliminar (propio o admin) |
-
-### Concepts
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/concepts` | -- | Lista con excerpt_count y source_count |
-| POST | `/api/concepts` | JWT | Crear concepto |
-| PUT | `/api/concepts` | JWT | Renombrar (propio o admin) |
-| DELETE | `/api/concepts?id=X` | admin | Eliminar concepto |
-| POST | `/api/concepts/link-excerpt` | JWT | Vincular concepto-excerpt |
-| POST | `/api/concepts/unlink-excerpt` | JWT | Desvincular (propio o admin) |
-
-### Themes
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/themes` | -- | Lista temas |
-| POST | `/api/themes` | JWT | Crear tema |
-| PUT | `/api/themes` | JWT | Actualizar (label, color) |
-| DELETE | `/api/themes?id=X` | admin | Eliminar tema |
-| POST | `/api/themes/add-concept` | JWT | Agregar concepto a tema |
-| POST | `/api/themes/remove-concept` | JWT | Quitar concepto de tema |
-
-### Notes
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/notes?theme_id=X` | -- | Notas de un tema |
-| GET | `/api/notes?concept_id=X` | -- | Notas de un concepto |
-| POST | `/api/notes` | JWT | Crear nota (theme_id o concept_id) |
-| PUT | `/api/notes` | JWT | Editar (propio o admin) |
-| DELETE | `/api/notes?id=X` | JWT | Eliminar (propio o admin) |
-
-### Graph
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/graph` | -- | Grafo completo (nodes + links + themes) |
-| GET | `/api/graph?source_id=X` | -- | Grafo filtrado por fuente |
-| GET | `/api/graph?user_id=X` | -- | Grafo filtrado por usuario |
-
-### Admin
-
-| Metodo | Ruta | Auth | Descripcion |
-|--------|------|------|-------------|
-| GET | `/api/admin/users` | admin | Lista usuarios registrados |
-| PUT | `/api/admin/users` | admin | Cambiar rol (user/admin) |
-| GET | `/api/admin/activity` | admin | Log de actividad |
-| GET | `/api/admin/stats` | admin | Estadisticas generales |
-
-## Arquitectura del frontend
+### Desvincular concepto (con regla de huerfanos)
 
 ```mermaid
-graph TB
-    subgraph Tabs
-        T1["sources.js\nLista de fuentes\nImport/edit (admin)"]
-        T2["reader.js\nLector con seleccion\nHighlighter + popup"]
-        T3["themes.js\nMapa de conceptos\nTemas + notas"]
+sequenceDiagram
+    actor U as Usuario
+    participant R as reader.js
+    participant S as state.js
+    participant API as Backend
+    participant DB as PostgreSQL
+
+    U->>R: Click x en excerpt
+    R->>S: removeConceptFromExcerpt(excId, conceptId)
+    S->>API: POST /concepts/unlink-excerpt
+    API->>DB: DELETE concept_excerpts
+    API->>DB: SELECT count(*) WHERE excerpt_id=?
+    alt 0 conceptos restantes
+        API->>DB: Remove milestones from source
+        API->>DB: DELETE excerpt
+        API-->>S: excerpt_deleted: true
+        S->>S: delete state.excerpts[excId]
+    else 1+ conceptos restantes
+        API-->>S: excerpt_deleted: false
     end
+    S->>R: notify → re-render
+```
 
-    subgraph Components
-        C1["text-highlighter.js\nRenderiza marks sobre texto"]
-        C2["popup.js\nCaptura seleccion → excerpt"]
-        C3["autocomplete.js\nSugerencia de conceptos"]
-        C4["concept-gloss.js\nSidebar de conceptos"]
-        C5["concept-map.js\nGrafo 2D (d3-force)"]
-        C6["concept-map-3d.js\nGrafo 3D (3d-force-graph)"]
-        C7["minimap.js\nMiniatura de navegacion"]
-        C8["split-view.js\nPaneles redimensionables"]
+### Eliminar concepto (admin, cascada)
+
+```mermaid
+sequenceDiagram
+    actor A as Admin
+    participant R as reader.js
+    participant S as state.js
+    participant API as Backend
+    participant DB as PostgreSQL
+
+    A->>R: Confirma eliminacion
+    R->>S: removeConcept(id)
+    S->>API: DELETE /concepts?id=X
+    API->>DB: DELETE concepts (CASCADE → concept_excerpts)
+    loop Cada excerpt vinculado
+        API->>DB: SELECT count(*) conceptos restantes
+        alt 0 conceptos (huerfano)
+            API->>DB: Remove milestones from source
+            API->>DB: DELETE excerpt
+        end
     end
-
-    subgraph Core
-        M["main.js — boot + auth"]
-        R["router.js — hash routing"]
-        S["state.js — cache + pub/sub"]
-        A["api.js — fetch + JWT + progress"]
-    end
-
-    M --> R
-    R --> T1 & T2 & T3
-    T1 & T2 & T3 --> S
-    T2 --> C1 & C2 & C3 & C4 & C7 & C8
-    T3 --> C5 & C6
-    S --> A
+    API-->>S: {orphans_deleted: N}
+    S->>S: Limpiar excerpts huerfanos del state
+    S->>R: notify → re-render
 ```
 
-## Tipografia
+## Permisos
 
-| Uso | Fuente | Variable CSS | Pesos |
-|-----|--------|-------------|-------|
-| UI (botones, labels, nav) | Gabarito | `--font` | 400-700 |
-| Lectura (reader) | Sorts Mill Goudy | `--font-reading` | 400, 400i |
-| Editor / codigo / preview | IBM Plex Mono | `--mono` | 400, 400i, 700 |
+| Recurso | Crear | Editar | Eliminar |
+|---------|-------|--------|----------|
+| Fuente | admin | admin | admin |
+| Seccion | user+ | - | propio o admin |
+| Concepto | user+ | propio o admin (rename) | admin |
+| Tema | user+ | propio o admin | admin |
+| Nota | user+ | propio o admin | propio o admin |
+| Vincular concepto-seccion | user+ | - | propio o admin |
+| Perfil | propio | propio | - |
+| Roles | - | admin | - |
 
-IBM Plex Mono se sirve self-hosted desde `public/fonts/ibm-plex-mono/` (woff2).
+## Filtros del mapa
 
-## Desarrollo local
-
-```bash
-npm install
-cp .env.example .env   # configurar DATABASE_URL
-npx netlify dev         # localhost:8888
+```mermaid
+flowchart LR
+    F1[Filtro fuentes] --> Q[SQL query]
+    F2[Filtro usuarios] --> Q
+    Q --> G[Grafo: nodos + links]
+    G --> M2D[concept-map.js D3]
+    G --> M3D[concept-map-3d.js Three.js]
 ```
 
-En local, sin JWT, las functions usan el dev user definido en `.env`:
-
 ```
-DEV_USER_EMAIL=hspencer@ead.cl
-DEV_USER_NAME=Herbert Spencer
-DEV_USER_ID=user_mn5b5yb6
+GET /api/graph?min_excerpts=1&sources=id1,id2&users=id1,id2
 ```
 
-La DB es compartida entre dev y produccion (misma instancia Neon).
+- `sources`: filtra excerpts por `source_id IN (...)`
+- `users`: filtra por `created_by IN (...) OR linked_by IN (...)`
+- Ambos: interseccion
+- Sin filtros: grafo completo
 
-## Deploy
+## Sidenotes (notas al pie)
 
-Push a `main` → Netlify auto-deploy (CDN + Functions). La DB se provisiona via Neon.
+```mermaid
+flowchart TD
+    A["markdown: texto[^1]"] --> B["marked-footnote"]
+    B --> C["HTML: sup + section.footnotes"]
+    C --> D["convertFootnotesToSidenotes()"]
+    D --> E["Mueve li a .reader-sidenotes"]
+    E --> F["JS calcula top segun sup"]
+    F --> G["Click en sup → highlight sidenote"]
+```
+
+Las footnotes en markdown (`[^1]: texto`) se renderizan como sidenotes
+en una columna lateral derecha, alineadas con su referencia `<sup>`.
+
+## Auto-anotacion
+
+```mermaid
+flowchart TD
+    A[auto-annotate.mjs] --> B["PASO 1: Claude analiza texto"]
+    B --> C["Propone conceptos existentes + nuevos"]
+    C --> D["Revision interactiva: agregar/quitar"]
+    D --> E["PASO 2: Claude genera secciones con anclas"]
+    E --> F["Resolver anclas en texto"]
+    F --> G["POST /concepts si nuevo"]
+    F --> H["POST /excerpts"]
+    F --> I["insertMilestones en source"]
+    F --> J["POST /concepts/link-excerpt"]
+    G --> K["PUT /sources con milestones"]
+    H --> K
+    I --> K
+    J --> K
+```
+
+## Stack tecnico
+
+| Capa | Tecnologia |
+|------|------------|
+| Frontend | Vanilla JS (ES6 modules), sin build step |
+| Markdown | marked.js + marked-footnote |
+| Mapas | D3.js (2D) + 3d-force-graph / Three.js (3D) |
+| Backend | Netlify Functions (Node.js serverless) |
+| Database | PostgreSQL (Neon) |
+| Auth | Netlify Identity (Google OAuth) |
+| Hosting | Netlify (CDN + Functions) |
+| AI | Claude CLI (auto-annotate) |

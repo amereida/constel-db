@@ -1,32 +1,28 @@
 #!/usr/bin/env node
 /**
- * auto-annotate.mjs
+ * auto-annotate.mjs — Anotación asistida por IA para con§tel-db
  *
- * Two-step interactive annotation using Claude CLI:
- *   STEP 1 — Claude proposes concepts for the document
- *            → you review, remove, add concepts
- *   STEP 2 — Claude marks excerpt boundaries using anchors (first/last words)
- *            → the script extracts exact text from the source file (zero offset errors)
- *            → saves via server API (safe with browser open)
+ * Dos pasos interactivos usando Claude CLI:
+ *   PASO 1 — Claude propone conceptos para el documento
+ *            → revisión interactiva (agregar/quitar)
+ *   PASO 2 — Claude marca secciones usando anclas (primeras/últimas palabras)
+ *            → el script resuelve anclas en el texto, inserta milestones,
+ *              crea excerpts y conceptos via API REST
  *
- * Usage:
- *   node scripts/auto-annotate.mjs "1983 - América, Américas Mías.txt"
- *   node scripts/auto-annotate.mjs "1983 - América, Américas Mías.txt" --dry-run
+ * Uso:
+ *   node scripts/auto-annotate.mjs "Amereida"
+ *   node scripts/auto-annotate.mjs "Amereida" --dry-run
+ *
+ * El argumento es el TÍTULO de la fuente (o substring del título).
+ * Requiere netlify dev corriendo en localhost:8888.
  */
 
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { createInterface } from 'readline';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
-const CORPUS_DIR = join(ROOT, 'corpus');
+const SERVER = process.env.CONSTEL_URL || 'http://localhost:8888';
 
-const SERVER = process.env.CONSTEL_URL || 'http://127.0.0.1:8787';
-
-// ── Helpers ──────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────
 
 function makeId(prefix) {
   const ts = Date.now().toString(36);
@@ -34,89 +30,78 @@ function makeId(prefix) {
   return `${prefix}_${ts}${rand}`;
 }
 
-function now() {
-  return new Date().toISOString();
-}
-
 function askQuestion(rl, prompt) {
   return new Promise(resolve => rl.question(prompt, resolve));
 }
 
-// ── Server API ───────────────────────────────────────────────────────
+// ── API REST ─────────────────────────────────────────────────────
 
-async function apiGet(path) {
-  const res = await fetch(`${SERVER}${path}`);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-}
-
-async function apiPut(path, body) {
-  const res = await fetch(`${SERVER}${path}`, {
-    method: 'PUT',
+async function api(method, path, body) {
+  const opts = {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(`${SERVER}/api${path}`, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`${method} ${path}: ${res.status} ${err.error || res.statusText}`);
+  }
   return res.json();
 }
 
-// ── Text processing ──────────────────────────────────────────────────
+// ── Text processing ──────────────────────────────────────────────
 
 /**
- * Split text into numbered paragraphs for Claude to reference.
+ * Divide el texto en párrafos numerados para que Claude los referencie.
+ * Ignora líneas que son markers de markdown (```, #, etc.)
  */
 function numberParagraphs(text) {
   const lines = text.split('\n');
   const paragraphs = [];
   let current = [];
-  let startOffset = 0;
-  let currentStart = 0;
+  let inFence = false;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineStart = startOffset;
-    startOffset += line.length + 1;
-
+  for (const line of lines) {
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      if (current.length > 0) {
+        paragraphs.push({ num: paragraphs.length + 1, text: current.join('\n') });
+        current = [];
+      }
+      continue;
+    }
+    if (inFence) {
+      current.push(line);
+      continue;
+    }
     if (line.trim() === '') {
       if (current.length > 0) {
-        paragraphs.push({
-          num: paragraphs.length + 1,
-          text: current.join('\n'),
-          start: currentStart,
-          end: lineStart,
-        });
+        paragraphs.push({ num: paragraphs.length + 1, text: current.join('\n') });
         current = [];
       }
     } else {
-      if (current.length === 0) currentStart = lineStart;
       current.push(line);
     }
   }
   if (current.length > 0) {
-    paragraphs.push({
-      num: paragraphs.length + 1,
-      text: current.join('\n'),
-      start: currentStart,
-      end: startOffset,
-    });
+    paragraphs.push({ num: paragraphs.length + 1, text: current.join('\n') });
   }
-
   return paragraphs;
 }
 
 /**
- * Resolve an anchor string to a position in the text.
+ * Busca una cadena ancla en el texto, con normalización de espacios.
  */
 function findAnchor(text, anchor, searchFrom = 0) {
   if (!anchor || anchor.length < 3) return -1;
-
   const region = text.slice(searchFrom);
 
-  // Exact match
+  // Búsqueda exacta
   let idx = region.indexOf(anchor);
   if (idx !== -1) return searchFrom + idx;
 
-  // Normalized whitespace
+  // Espacios normalizados
   const normRegion = region.replace(/\s+/g, ' ');
   const normAnchor = anchor.replace(/\s+/g, ' ');
   const normIdx = normRegion.indexOf(normAnchor);
@@ -136,7 +121,7 @@ function findAnchor(text, anchor, searchFrom = 0) {
 }
 
 /**
- * Given start_anchor and end_anchor, find the exact excerpt in the source text.
+ * Resuelve anclas inicio/fin en el texto, retorna { start, end, text }.
  */
 function resolveAnchors(fullText, startAnchor, endAnchor, searchFrom = 0) {
   const startIdx = findAnchor(fullText, startAnchor, searchFrom);
@@ -145,7 +130,6 @@ function resolveAnchors(fullText, startAnchor, endAnchor, searchFrom = 0) {
   const endIdx = findAnchor(fullText, endAnchor, startIdx);
   if (endIdx === -1) return null;
 
-  // Find end position (end of end_anchor in original text)
   const endRegion = fullText.slice(endIdx);
   let endPos = endIdx;
 
@@ -165,25 +149,68 @@ function resolveAnchors(fullText, startAnchor, endAnchor, searchFrom = 0) {
   }
 
   const text = fullText.slice(startIdx, endPos);
-
-  // Sanity: excerpt shouldn't be absurdly long
-  if (text.length > 3000) return null;
+  if (text.length > 3000) return null; // sanity check
 
   return { start: startIdx, end: endPos, text };
 }
 
+/**
+ * Inserta milestones <!-- §b ID --> y <!-- §e ID --> en el source markdown.
+ */
+function insertMilestones(source, excId, excerptText) {
+  // Limpiar el texto de milestones existentes para buscar
+  const cleanSource = source.replace(/<!-- §[be] \S+ -->/g, '');
+  const cleanExcerpt = excerptText.replace(/<!-- §[be] \S+ -->/g, '');
+
+  const idx = cleanSource.indexOf(cleanExcerpt);
+  if (idx === -1) return null;
+
+  // Mapear posición en cleanSource a posición en source original
+  let cleanPos = 0, realPos = 0;
+  while (cleanPos < idx && realPos < source.length) {
+    const milestoneMatch = source.slice(realPos).match(/^<!-- §[be] \S+ -->/);
+    if (milestoneMatch) {
+      realPos += milestoneMatch[0].length;
+      continue;
+    }
+    cleanPos++;
+    realPos++;
+  }
+  const realStart = realPos;
+
+  // Encontrar el final
+  cleanPos = 0;
+  while (cleanPos < idx + cleanExcerpt.length && realPos < source.length) {
+    const milestoneMatch = source.slice(realPos).match(/^<!-- §[be] \S+ -->/);
+    if (milestoneMatch) {
+      realPos += milestoneMatch[0].length;
+      continue;
+    }
+    cleanPos++;
+    realPos++;
+  }
+  const realEnd = realPos;
+
+  const before = source.slice(0, realStart);
+  const marked = source.slice(realStart, realEnd);
+  const after = source.slice(realEnd);
+
+  return `${before}<!-- §b ${excId} -->${marked}<!-- §e ${excId} -->${after}`;
+}
+
+// ── Claude CLI ───────────────────────────────────────────────────
+
 function callClaude(prompt) {
-  const raw = execSync(
+  return execSync(
     'claude -p --output-format json --model sonnet --max-turns 1',
     {
       input: prompt,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'ignore'],  // suppress stderr
+      stdio: ['pipe', 'pipe', 'ignore'],
       maxBuffer: 10 * 1024 * 1024,
-      timeout: 600_000,  // 10 min
+      timeout: 600_000,
     }
   );
-  return raw;
 }
 
 function parseJsonResponse(response) {
@@ -204,20 +231,11 @@ function parseJsonResponse(response) {
   try {
     return JSON.parse(jsonStr);
   } catch (e) {
-    // Truncated JSON — salvage complete objects from the array
-    // Find the last complete excerpt object (ending with })
+    // Reparar JSON truncado
     const lastGood = jsonStr.lastIndexOf('}');
-    if (lastGood === -1) {
-      throw new Error(`JSON inválido: ${e.message}\nPrimeros 300 chars: ${jsonStr.slice(0, 300)}`);
-    }
+    if (lastGood === -1) throw new Error(`JSON invalido: ${e.message}`);
 
-    // Truncate at the last complete object, close the structures
-    let salvaged = jsonStr.slice(0, lastGood + 1);
-
-    // Remove any trailing comma
-    salvaged = salvaged.replace(/,\s*$/, '');
-
-    // Close open brackets and braces
+    let salvaged = jsonStr.slice(0, lastGood + 1).replace(/,\s*$/, '');
     const opens = { '{': 0, '[': 0 };
     const closes = { '}': '{', ']': '[' };
     let inStr = false, esc = false;
@@ -233,88 +251,85 @@ function parseJsonResponse(response) {
     for (let i = 0; i < opens['{']; i++) salvaged += '}';
     salvaged = salvaged.replace(/,\s*(\]|\})/g, '$1');
 
-    try {
-      const result = JSON.parse(salvaged);
-      const n = result.excerpts?.length || '?';
-      console.warn(`  ⚠️  JSON truncado por Claude — se rescataron ${n} excerpts completos`);
-      return result;
-    } catch (e2) {
-      throw new Error(`JSON inválido (incluso tras reparación): ${e.message}\nPrimeros 500 chars: ${jsonStr.slice(0, 500)}`);
-    }
+    const result = JSON.parse(salvaged);
+    const n = result.ex?.length || '?';
+    console.warn(`  (!) JSON truncado — se rescataron ${n} excerpts`);
+    return result;
   }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
-const filename = args.find(a => !a.startsWith('--'));
+const query = args.find(a => !a.startsWith('--'));
 
-if (!filename) {
-  console.error('Usage: node scripts/auto-annotate.mjs <filename> [--dry-run]');
-  console.error('Example: node scripts/auto-annotate.mjs "1983 - América, Américas Mías.txt"');
+if (!query) {
+  console.error('Uso: node scripts/auto-annotate.mjs <titulo> [--dry-run]');
+  console.error('Ejemplo: node scripts/auto-annotate.mjs "Amereida"');
   process.exit(1);
 }
 
-// Load DB from server API (gets the same state the browser sees)
-console.log(`\n🔌 Conectando a ${SERVER}...`);
-let db;
+// 1. Conectar al servidor y buscar la fuente
+console.log(`\nConectando a ${SERVER}...`);
+let sources;
 try {
-  db = await apiGet('/api/db');
+  sources = await api('GET', '/sources');
 } catch (e) {
-  console.error(`No se pudo conectar al servidor: ${e.message}`);
-  console.error('Asegúrate de que el servidor esté corriendo (node server.mjs)');
+  console.error(`No se pudo conectar: ${e.message}`);
+  console.error('Asegurate de que netlify dev este corriendo.');
   process.exit(1);
 }
 
-const source = Object.values(db.sources).find(s => s.filename === filename);
+const source = sources.find(s =>
+  s.title.toLowerCase().includes(query.toLowerCase()) ||
+  s.filename?.toLowerCase().includes(query.toLowerCase())
+);
 if (!source) {
-  console.error(`Source not found in DB: ${filename}`);
-  console.error('Available:', Object.values(db.sources).map(s => s.filename).join(', '));
+  console.error(`Fuente no encontrada: "${query}"`);
+  console.error('Disponibles:', sources.map(s => s.title).join(', '));
   process.exit(1);
 }
 
-// Load text from file (faster than API, same content)
-const textPath = join(CORPUS_DIR, filename);
-let text;
-try {
-  text = readFileSync(textPath, 'utf-8').trim();
-} catch (e) {
-  console.error(`Cannot read: ${textPath}`);
+// 2. Cargar contenido y datos relacionados
+const sourceDetail = await api('GET', `/sources?id=${source.id}`);
+const text = sourceDetail.content;
+if (!text) {
+  console.error('La fuente no tiene contenido.');
   process.exit(1);
 }
 
-const existingConcepts = Object.values(db.concepts).map(c => c.label).sort();
-const existingExcerpts = Object.values(db.excerpts)
-  .filter(e => e.sourceId === source.id)
-  .map(e => ({ text: e.text.slice(0, 50), start: e.start, end: e.end }));
+const allConcepts = await api('GET', '/concepts');
+const existingLabels = allConcepts.map(c => c.label).sort();
+
+// Contar milestones existentes
+const existingMilestones = (text.match(/<!-- §b \S+ -->/g) || []).length;
 
 const paragraphs = numberParagraphs(text);
 
-console.log(`📄 Source: ${source.title}`);
-console.log(`   ${text.length} chars, ${source.wordCount} words, ${paragraphs.length} párrafos`);
-console.log(`   ${existingExcerpts.length} excerpts existentes`);
-console.log(`   ${existingConcepts.length} conceptos en DB`);
-console.log(`   Mode: ${dryRun ? 'DRY RUN' : 'LIVE (guardará via API)'}\n`);
+console.log(`Fuente: ${source.title}`);
+console.log(`  ${text.length} caracteres, ${source.word_count} palabras, ${paragraphs.length} parrafos`);
+console.log(`  ${existingMilestones} secciones existentes`);
+console.log(`  ${existingLabels.length} conceptos en DB`);
+console.log(`  Modo: ${dryRun ? 'DRY RUN' : 'EN VIVO (guardara via API)'}\n`);
 
-// ══════════════════════════════════════════════════════════════════════
-// STEP 1 — Propose concepts
-// ══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// PASO 1 — Proponer conceptos
+// ══════════════════════════════════════════════════════════════════
 
-console.log('═══ PASO 1: Análisis de conceptos ═══\n');
-console.log('🤖 Enviando texto a Claude...\n');
+console.log('=== PASO 1: Analisis de conceptos ===\n');
+console.log('Enviando texto a Claude...\n');
 
-const numberedText = paragraphs.map(p => `[§${p.num}] ${p.text}`).join('\n\n');
+const numberedText = paragraphs.map(p => `[p${p.num}] ${p.text}`).join('\n\n');
 
-// For very long texts, send a condensed version (first 500 chars per paragraph)
 const isLong = text.length > 30000;
 const textForStep1 = isLong
-  ? paragraphs.map(p => `[§${p.num}] ${p.text.slice(0, 500)}`).join('\n')
+  ? paragraphs.map(p => `[p${p.num}] ${p.text.slice(0, 500)}`).join('\n')
   : numberedText;
 
-const step1Prompt = `Análisis temático. Identifica conceptos en este texto.
+const step1Prompt = `Analisis tematico. Identifica conceptos en este texto.
 
-Conceptos existentes: ${existingConcepts.join(', ')}
+Conceptos existentes en el corpus: ${existingLabels.join(', ') || '(ninguno)'}
 
 TEXTO:
 ${textForStep1}
@@ -323,74 +338,64 @@ Responde SOLO con JSON compacto:
 {"existing":[{"l":"label","r":"nota breve"}],"new":[{"l":"label","r":"nota"}],"summary":"resumen"}
 
 REGLAS:
-- "existing": solo conceptos de la lista que REALMENTE aparezcan. Máximo 15.
-- "new": conceptos nuevos (sustantivos cortos, español, minúsculas). Entre 3-10.
-- Notas ("r") de máximo 10 palabras.
+- "existing": solo conceptos de la lista que REALMENTE aparezcan. Maximo 15.
+- "new": conceptos nuevos (sustantivos cortos, espanol, minusculas). Entre 3-10.
+- Notas ("r") de maximo 10 palabras.
 - Responde SOLO el JSON.`;
 
 let step1Result;
 try {
   const resp = callClaude(step1Prompt);
   const raw = parseJsonResponse(resp);
-  // Normalize compact keys to full keys
   step1Result = {
     summary: raw.summary || '',
-    existing_concepts: (raw.existing || raw.existing_concepts || []).map(c => ({
-      label: c.l || c.label,
-      relevance: c.r || c.relevance || '',
-    })),
-    new_concepts: (raw.new || raw.new_concepts || []).map(c => ({
-      label: c.l || c.label,
-      relevance: c.r || c.relevance || '',
-    })),
+    existing: (raw.existing || []).map(c => ({ label: c.l || c.label, note: c.r || c.relevance || '' })),
+    newConcepts: (raw.new || []).map(c => ({ label: c.l || c.label, note: c.r || c.relevance || '' })),
   };
 } catch (e) {
   console.error('Error en paso 1:', e.message);
   process.exit(1);
 }
 
-console.log(`📋 ${step1Result.summary || ''}\n`);
+console.log(`${step1Result.summary || ''}\n`);
 
-console.log('── Conceptos existentes detectados ──');
-const detectedExisting = step1Result.existing_concepts || [];
-for (let i = 0; i < detectedExisting.length; i++) {
-  const c = detectedExisting[i];
-  console.log(`  ${i + 1}. ${c.label} — ${c.relevance}`);
+console.log('-- Conceptos existentes detectados --');
+for (let i = 0; i < step1Result.existing.length; i++) {
+  const c = step1Result.existing[i];
+  console.log(`  ${i + 1}. ${c.label} -- ${c.note}`);
 }
 
-console.log('\n── Conceptos nuevos sugeridos ──');
-const suggestedNew = step1Result.new_concepts || [];
-for (let i = 0; i < suggestedNew.length; i++) {
-  const c = suggestedNew[i];
-  console.log(`  ${String.fromCharCode(97 + i)}. ${c.label} — ${c.relevance}`);
+console.log('\n-- Conceptos nuevos sugeridos --');
+for (let i = 0; i < step1Result.newConcepts.length; i++) {
+  const c = step1Result.newConcepts[i];
+  console.log(`  ${String.fromCharCode(97 + i)}. ${c.label} -- ${c.note}`);
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Interactive review
-// ══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// Revision interactiva
+// ══════════════════════════════════════════════════════════════════
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-console.log('\n═══ REVISIÓN INTERACTIVA ═══');
-console.log('Puedes ajustar la lista de conceptos antes de generar excerpts.\n');
+console.log('\n=== REVISION INTERACTIVA ===');
 console.log('Comandos:');
-console.log('  -N        eliminar concepto existente (ej: -3)');
-console.log('  -a        eliminar concepto nuevo sugerido (ej: -b)');
+console.log('  -N        eliminar existente (ej: -3)');
+console.log('  -a        eliminar nuevo (ej: -b)');
 console.log('  +palabra  agregar concepto (ej: +el juego)');
-console.log('  ok        continuar con la lista actual');
+console.log('  ok        continuar');
 console.log('  abort     cancelar\n');
 
-let workingExisting = detectedExisting.map(c => c.label);
-let workingNew = suggestedNew.map(c => c.label);
+let workingExisting = step1Result.existing.map(c => c.label);
+let workingNew = step1Result.newConcepts.map(c => c.label);
 
-function showCurrentList() {
-  console.log('\n── Lista actual ──');
+function showList() {
+  console.log('\n-- Lista actual --');
   console.log('  Existentes:', workingExisting.join(', ') || '(ninguno)');
   console.log('  Nuevos:', workingNew.join(', ') || '(ninguno)');
   console.log('');
 }
 
-showCurrentList();
+showList();
 
 let reviewing = true;
 while (reviewing) {
@@ -407,48 +412,37 @@ while (reviewing) {
     const num = parseInt(token);
     if (!isNaN(num) && num >= 1 && num <= workingExisting.length) {
       const removed = workingExisting.splice(num - 1, 1)[0];
-      console.log(`    ✕ Eliminado: "${removed}"`);
+      console.log(`    x Eliminado: "${removed}"`);
     } else if (token.length === 1 && token >= 'a' && token <= 'z') {
       const idx = token.charCodeAt(0) - 97;
       if (idx >= 0 && idx < workingNew.length) {
         const removed = workingNew.splice(idx, 1)[0];
-        console.log(`    ✕ Eliminado nuevo: "${removed}"`);
-      } else {
-        console.log(`    ? Índice "${token}" fuera de rango`);
+        console.log(`    x Eliminado nuevo: "${removed}"`);
       }
     } else {
       const label = token.toLowerCase();
       let found = false;
-      workingExisting = workingExisting.filter(c => {
-        if (c.toLowerCase() === label) { found = true; return false; }
-        return true;
-      });
-      if (!found) {
-        workingNew = workingNew.filter(c => {
-          if (c.toLowerCase() === label) { found = true; return false; }
-          return true;
-        });
-      }
-      if (found) console.log(`    ✕ Eliminado: "${label}"`);
-      else console.log(`    ? No encontrado: "${label}"`);
+      workingExisting = workingExisting.filter(c => { if (c.toLowerCase() === label) { found = true; return false; } return true; });
+      if (!found) workingNew = workingNew.filter(c => { if (c.toLowerCase() === label) { found = true; return false; } return true; });
+      console.log(found ? `    x Eliminado: "${label}"` : `    ? No encontrado: "${label}"`);
     }
-    showCurrentList();
+    showList();
   } else if (input.startsWith('+')) {
     const label = input.slice(1).trim().toLowerCase();
     if (label) {
       if (workingExisting.includes(label) || workingNew.includes(label)) {
         console.log(`    Ya existe: "${label}"`);
-      } else if (existingConcepts.includes(label)) {
+      } else if (existingLabels.includes(label)) {
         workingExisting.push(label);
-        console.log(`    ✓ Agregado (existente): "${label}"`);
+        console.log(`    + Agregado (existente): "${label}"`);
       } else {
         workingNew.push(label);
-        console.log(`    ✓ Agregado (nuevo): "${label}"`);
+        console.log(`    + Agregado (nuevo): "${label}"`);
       }
-      showCurrentList();
+      showList();
     }
   } else {
-    console.log('    ? Comando no reconocido. Usa -N, -a, +palabra, ok, abort');
+    console.log('    ? Usa -N, -a, +palabra, ok, abort');
   }
 }
 
@@ -456,79 +450,74 @@ rl.close();
 
 const finalConcepts = [...workingExisting, ...workingNew];
 if (finalConcepts.length === 0) {
-  console.log('\nNo hay conceptos seleccionados. Cancelando.');
+  console.log('\nSin conceptos. Cancelando.');
   process.exit(0);
 }
 
-console.log(`\n✅ ${finalConcepts.length} conceptos confirmados: ${finalConcepts.join(', ')}\n`);
+console.log(`\n${finalConcepts.length} conceptos confirmados: ${finalConcepts.join(', ')}\n`);
 
-// ══════════════════════════════════════════════════════════════════════
-// STEP 2 — Generate excerpts by TEXT CHUNKS
-//   Each chunk: ~50 paragraphs with ALL concepts
-//   This keeps both input and output small
-// ══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// PASO 2 — Generar excerpts por chunks
+// ══════════════════════════════════════════════════════════════════
 
-const CHUNK_PARAS = 50; // paragraphs per chunk
+const CHUNK_PARAS = 50;
 const chunks = [];
 for (let i = 0; i < paragraphs.length; i += CHUNK_PARAS) {
   chunks.push(paragraphs.slice(i, i + CHUNK_PARAS));
 }
 
-console.log(`═══ PASO 2: Generación de excerpts (${chunks.length} secciones) ═══\n`);
+console.log(`=== PASO 2: Generacion de secciones (${chunks.length} bloques) ===\n`);
 
-// Re-read DB fresh from server
-db = await apiGet('/api/db');
+// Mapa de conceptos existentes
+const conceptByLabel = {};
+for (const c of allConcepts) {
+  conceptByLabel[c.label.toLowerCase()] = c.id;
+}
 
+let currentSource = text; // el source que iremos modificando con milestones
 let addedExcerpts = 0;
 let addedConcepts = 0;
 let skippedExcerpts = 0;
 let failedAnchors = 0;
 
-const conceptByLabel = {};
-for (const c of Object.values(db.concepts)) {
-  conceptByLabel[c.label.toLowerCase()] = c.id;
-}
-
-const freshExisting = Object.values(db.excerpts)
-  .filter(e => e.sourceId === source.id)
-  .map(e => ({ start: e.start, end: e.end }));
-const occupiedRanges = [...freshExisting];
-
 for (let ch = 0; ch < chunks.length; ch++) {
   const chunk = chunks[ch];
   const fromP = chunk[0].num;
   const toP = chunk[chunk.length - 1].num;
-  const chunkText = chunk.map(p => `[§${p.num}] ${p.text}`).join('\n\n');
-  const chunkStart = chunk[0].start;
-  const chunkEnd = chunk[chunk.length - 1].end;
+  const chunkText = chunk.map(p => `[p${p.num}] ${p.text}`).join('\n\n');
 
-  // Occupied ranges within this chunk's region
-  const chunkOccupied = occupiedRanges
-    .filter(r => r.start < chunkEnd && r.end > chunkStart)
-    .map(r => `[${r.start}-${r.end}]`).join(', ') || 'ninguno';
-
-  console.log(`── Sección ${ch + 1}/${chunks.length} (§${fromP}-§${toP}, ${chunk.length} párrafos) ──`);
-  console.log('🤖 Enviando a Claude...');
+  console.log(`-- Bloque ${ch + 1}/${chunks.length} (p${fromP}-p${toP}, ${chunk.length} parrafos) --`);
+  console.log('Enviando a Claude...');
 
   const chunkPrompt = `Marca pasajes relevantes en este fragmento de texto. Asigna conceptos de la lista.
 
 Conceptos: ${finalConcepts.join(', ')}
 
-Zonas ya marcadas (NO solapar): ${chunkOccupied}
-
-TEXTO (fragmento §${fromP}-§${toP}):
+TEXTO (fragmento p${fromP}-p${toP}):
 ${chunkText}
 
-JSON compacto. Anclas "s" y "e" de 4-6 palabras exactas del texto. Max 12 excerpts.
-{"ex":[{"s":"inicio","e":"fin","c":["concepto"]}]}`;
+JSON compacto. Anclas "s" y "e" de 4-6 palabras EXACTAS del texto (copiar literal). Max 12 excerpts.
+{"ex":[{"s":"primeras palabras","e":"ultimas palabras","c":["concepto1","concepto2"]}]}
+
+REGLAS:
+- Las anclas deben ser copias EXACTAS del texto, respetando mayusculas y acentos.
+- NO uses comillas dobles dentro de las anclas. Si el texto tiene comillas, reemplazalas por comillas simples.
+- Cada excerpt: minimo 1 oracion, maximo 1 parrafo.
+- No solapar excerpts entre si.
+- Responde SOLO el JSON, bien formado.`;
 
   let chunkResult;
   try {
     const resp = callClaude(chunkPrompt);
     chunkResult = parseJsonResponse(resp);
   } catch (e) {
-    console.warn(`  ⚠️  Error en sección ${ch + 1}: ${e.message.split('\n')[0]}`);
-    console.warn('  Continuando...\n');
+    console.warn(`  (!) Error JSON en bloque ${ch + 1}: ${e.message.split('\n')[0]}`);
+    // Show raw response for debugging
+    try {
+      const raw = JSON.parse(resp);
+      const text = (raw.result || '').slice(0, 500);
+      console.warn(`  Raw (500 chars): ${text}`);
+    } catch {}
     continue;
   }
 
@@ -542,79 +531,91 @@ JSON compacto. Anclas "s" y "e" de 4-6 palabras exactas del texto. Max 12 excerp
 
     if (!startAnchor || !endAnchor) { failedAnchors++; continue; }
 
-    // Search anchors within the chunk's region of the full text
-    let resolved = resolveAnchors(text, startAnchor, endAnchor, chunkStart);
+    // Resolver anclas en el texto limpio (sin milestones)
+    const cleanText = currentSource.replace(/<!-- §[be] \S+ -->/g, '');
+    let resolved = resolveAnchors(cleanText, startAnchor, endAnchor);
     if (!resolved) {
-      // Retry in full text as fallback
-      resolved = resolveAnchors(text, startAnchor, endAnchor);
-    }
-    if (!resolved) {
-      console.warn(`  ⚠️  anclas no encontradas: "${startAnchor}"`);
+      console.warn(`  (!) anclas no encontradas: "${startAnchor}..."`);
       failedAnchors++;
       continue;
     }
 
-    const { start, end, text: excerptText } = resolved;
+    if (resolved.text.split(/\s+/).length < 5) { skippedExcerpts++; continue; }
 
-    if (excerptText.split(/\s+/).length < 5) { skippedExcerpts++; continue; }
-
-    const overlaps = occupiedRanges.some(r => start < r.end && end > r.start);
-    if (overlaps) { skippedExcerpts++; continue; }
-
-    // Resolve concept IDs
+    // Crear concepto(s) si no existen
     const conceptIds = [];
     for (const label of concepts) {
       const key = label.toLowerCase().trim();
       if (conceptByLabel[key]) {
         conceptIds.push(conceptByLabel[key]);
-      } else {
-        const newId = makeId('con');
-        db.concepts[newId] = { id: newId, label: key, themeId: null, createdAt: now() };
-        conceptByLabel[key] = newId;
-        conceptIds.push(newId);
-        addedConcepts++;
+      } else if (!dryRun) {
+        try {
+          const newConcept = await api('POST', '/concepts', { label: key });
+          conceptByLabel[key] = newConcept.id;
+          conceptIds.push(newConcept.id);
+          addedConcepts++;
+        } catch (e) {
+          console.warn(`  (!) Error creando concepto "${key}": ${e.message}`);
+        }
       }
     }
 
+    // Crear excerpt
     const excId = makeId('exc');
-    db.excerpts[excId] = {
-      id: excId, sourceId: source.id, text: excerptText,
-      start, end, conceptIds, createdAt: now(),
-    };
+
+    if (!dryRun) {
+      // Insertar milestones en el source
+      const updated = insertMilestones(currentSource, excId, resolved.text);
+      if (!updated) {
+        console.warn(`  (!) No se pudo insertar milestone para: "${resolved.text.slice(0, 40)}..."`);
+        failedAnchors++;
+        continue;
+      }
+      currentSource = updated;
+
+      // Crear excerpt via API
+      try {
+        await api('POST', '/excerpts', {
+          source_id: source.id,
+          text: resolved.text,
+          start_pos: -1,
+          concept_ids: conceptIds,
+        });
+      } catch (e) {
+        console.warn(`  (!) Error creando excerpt: ${e.message}`);
+        continue;
+      }
+    }
+
     addedExcerpts++;
     chunkAdded++;
-    occupiedRanges.push({ start, end });
-
-    const preview = excerptText.replace(/\n/g, ' ').slice(0, 60);
-    console.log(`  ✅ [${start}-${end}] ${concepts.join(', ')} — "${preview}..."`);
+    const preview = resolved.text.replace(/\n/g, ' ').slice(0, 60);
+    console.log(`  + [${concepts.join(', ')}] "${preview}..."`);
   }
 
-  // Save incrementally after each chunk
-  if (!dryRun && chunkAdded > 0) {
-    try { await apiPut('/api/db', db); } catch (e) { console.error(`  ❌ ${e.message}`); }
+  console.log(`  ${chunkAdded} secciones en este bloque\n`);
+}
+
+// Guardar source actualizado con milestones
+if (!dryRun && currentSource !== text) {
+  try {
+    await api('PUT', '/sources', {
+      id: source.id,
+      content: currentSource,
+    });
+    console.log('Source actualizado con milestones.\n');
+  } catch (e) {
+    console.error(`Error guardando source: ${e.message}`);
   }
-
-  const coveredSoFar = occupiedRanges.reduce((sum, r) => sum + (r.end - r.start), 0);
-  console.log(`  📊 +${chunkAdded} excerpts, cobertura: ${((coveredSoFar / text.length) * 100).toFixed(1)}%\n`);
 }
 
-// ── Final report ─────────────────────────────────────────────────────
+// ── Reporte final ────────────────────────────────────────────────
 
-const totalExcerpts = Object.values(db.excerpts).filter(e => e.sourceId === source.id).length;
-const coveredChars = occupiedRanges.reduce((sum, r) => sum + (r.end - r.start), 0);
-const coverage = ((coveredChars / text.length) * 100).toFixed(1);
-
-if (!dryRun && addedExcerpts > 0) {
-  console.log('💾 Guardado via API. Recarga el navegador para ver los cambios.');
-}
-
-console.log(`\n═══ Resultados finales ═══`);
-console.log(`  Excerpts agregados:    ${addedExcerpts}`);
+console.log('=== Resultados ===');
+console.log(`  Secciones creadas:     ${addedExcerpts}`);
 console.log(`  Conceptos creados:     ${addedConcepts}`);
-console.log(`  Omitidos (overlap):    ${skippedExcerpts}`);
+console.log(`  Omitidos (cortos):     ${skippedExcerpts}`);
 console.log(`  Fallidos (anclas):     ${failedAnchors}`);
-console.log(`  Total excerpts:        ${totalExcerpts} (este documento)`);
-console.log(`  Cobertura del texto:   ${coverage}%`);
-console.log(`  Total conceptos DB:    ${Object.keys(db.concepts).length}`);
-if (dryRun) console.log(`\n  ⚡ DRY RUN — sin cambios`);
+console.log(`  Total conceptos DB:    ${Object.keys(conceptByLabel).length}`);
+if (dryRun) console.log(`\n  DRY RUN -- sin cambios`);
 console.log('');

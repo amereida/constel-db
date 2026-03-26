@@ -590,8 +590,8 @@
   box-decoration-break: clone;
 }
 
-/* Marks hidden mode — !important needed to override inline styles */
-.reader-content.marks-hidden mark[data-excerpt] {
+/* Individual mark hidden (per-mark, set by JS) */
+mark[data-excerpt].mark-hidden {
   background: transparent !important;
   cursor: text;
   pointer-events: none;
@@ -865,4 +865,87 @@
     line-height: 1.5;
     color: var(--muted);
   }
+}
+
+/* ── Excerpt popover (click on mark → add concept) ──────────────────── */
+.excerpt-popover {
+  z-index: 1200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-sm);
+  min-width: 180px;
+  max-width: 300px;
+}
+
+.excerpt-popover-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
+}
+
+.excerpt-popover-tag {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.excerpt-popover-tag:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.excerpt-popover-add {
+  position: relative;
+}
+
+.excerpt-popover-input {
+  width: 100%;
+  font-family: var(--font);
+  font-size: var(--font-size-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.excerpt-popover-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.excerpt-popover-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  max-height: 160px;
+  overflow-y: auto;
+  z-index: 1300;
+}
+
+.excerpt-popover-option {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.excerpt-popover-option:hover {
+  background: var(--surface-alt);
+}
+
+.excerpt-popover-option.new {
+  color: var(--accent);
+  font-style: italic;
 }

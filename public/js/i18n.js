@@ -39,7 +39,7 @@ const translations = {
     "reader.section_added": "§ agregada a",
     "reader.renamed": "Concepto renombrado →",
     "reader.confirm_delete_concept": "¿Eliminar concepto",
-    "reader.confirm_delete_suffix": "? Se desvinculará de todos sus excerpts.",
+    "reader.confirm_delete_suffix": "? Se eliminarán todas sus secciones asociadas.",
 
     // Map (Tab 3)
     "map.title": "Mapa de conceptos",

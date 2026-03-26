@@ -27,20 +27,6 @@
     <h1 class="logo">con<span class="section-sign">§</span>tel <span class="version" id="appVersion">v</span></h1>
     <div class="header-actions">
       <span class="status-msg" id="statusMsg"></span>
-      <div class="dropdown" id="bibliotecaDropdown">
-        <button class="btn-sm" id="bibliotecaBtn">Biblioteca</button>
-        <div class="dropdown-menu" id="bibliotecaMenu">
-          <button class="dropdown-item" id="exportBtn">Exportar constelación (ZIP)</button>
-          <label class="dropdown-item">
-            Importar constelación (ZIP)
-            <input type="file" id="importFile" accept=".zip" hidden>
-          </label>
-          <label class="dropdown-item">
-            Concatenar biblioteca (ZIP)
-            <input type="file" id="mergeFile" accept=".zip" hidden>
-          </label>
-        </div>
-      </div>
       <button class="btn-icon" id="themeToggle" title="Cambiar tema"><img src="icons/icons_mode-switch.svg" alt="Cambiar tema" width="20" height="20" style="opacity: 0.4"></button>
       <div class="user-info" id="userInfo" style="display:none"></div>
     </div>
@@ -58,15 +44,13 @@
       <img src="icons/icons_map.svg" class="tab-icon" alt="" /> <span data-i18n="tab.map">Mapa</span>
     </button>
     <span class="tab-source-title" id="tabSourceTitle">
-      <button class="btn-icon marks-toggle" id="marksToggle" title="Mostrar/ocultar marcas">
-        <svg id="marksToggleIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
-          <path d="M17.7,13.5c0,2-1.6,3.7-3.7,3.7s-3.7-1.6-3.7-3.7,1.6-3.7,3.7-3.7,3.7,1.6,3.7,3.7"/>
-          <path d="M14,10.9c3.9,0,7.6,1.2,10.7,3.2-2.2-3.6-6.1-6.1-10.7-6.1s-8.5,2.4-10.7,6.1c3.1-2,6.7-3.2,10.7-3.2"/>
-          <path d="M21,17.8c-2.2.8-4.5,1.3-7,1.3s-4.8-.5-7-1.3c2,1.4,4.4,2.3,7,2.3s5-.8,7-2.3"/>
-          <path class="eye-glint" d="M16.7,12.3c0,.8-.7,1.5-1.5,1.5s-1.5-.7-1.5-1.5.7-1.5,1.5-1.5,1.5.7,1.5,1.5"/>
-        </svg>
-      </button>
       <span id="readerTitle"></span>
+      <div class="marks-switch" id="marksSwitch">
+        <button class="marks-switch-btn active" data-marks="all" title="Todas las anotaciones">§*</button>
+        <button class="marks-switch-btn" data-marks="mine" title="Mis anotaciones">§</button>
+        <button class="marks-switch-btn" data-marks="none" title="Sin anotaciones">—</button>
+        <span class="marks-switch-indicator"></span>
+      </div>
     </span>
   </nav>
 

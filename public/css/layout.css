@@ -48,7 +48,7 @@ body {
   gap: var(--space-sm);
 }
 
-/* ── Dropdown (Biblioteca) ─────────────────────────────────────────────── */
+/* ── Dropdown ─────────────────────────────────────────────────────────── */
 .dropdown {
   position: relative;
 }
@@ -68,8 +68,79 @@ body {
   padding: var(--space-xs) 0;
 }
 
-.dropdown.open .dropdown-menu {
+.dropdown.open .dropdown-menu,
+.dropdown-menu.open {
   display: block;
+}
+
+/* ── User profile dropdown ────────────────────────────────────────────── */
+.user-avatar-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  transition: opacity var(--duration);
+}
+
+.user-avatar-btn:hover {
+  opacity: 0.8;
+}
+
+.user-profile-menu {
+  padding: var(--space-md) !important;
+  min-width: 260px;
+}
+
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.profile-label {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: var(--space-xs);
+}
+
+.profile-label:first-child {
+  margin-top: 0;
+}
+
+.profile-input {
+  font-family: var(--font);
+  font-size: var(--font-size-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  width: 100%;
+}
+
+.profile-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-sm);
+}
+
+.btn-logout-sm {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.btn-logout-sm:hover {
+  color: var(--ink);
 }
 
 .dropdown-item {
@@ -164,24 +235,53 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Eye toggle for marks visibility */
-.marks-toggle {
+/* 3-state marks switch (all / mine / none) */
+.marks-switch {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: 2px;
+  gap: 0;
   flex-shrink: 0;
-  color: var(--accent);
-  opacity: 0.7;
-  transition: opacity 0.15s;
 }
 
-[data-theme="dark"] .marks-toggle {
+.marks-switch-btn {
+  position: relative;
+  z-index: 1;
+  padding: 2px 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color var(--duration) var(--ease);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.marks-switch-btn.active {
   color: var(--ink);
 }
 
-.marks-toggle:hover {
-  opacity: 1;
+.marks-switch-btn:hover:not(.active) {
+  color: var(--ink);
 }
 
-.marks-toggle .eye-glint {
-  fill: var(--bg);
+.marks-switch-indicator {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  height: calc(100% - 4px);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  transition: transform var(--duration) var(--ease), width var(--duration) var(--ease);
+  pointer-events: none;
 }
 
 /* ── SVG icon inside buttons ─────────────────────────────────────────── */

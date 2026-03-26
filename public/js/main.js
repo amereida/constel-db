@@ -214,25 +214,78 @@ function showUserInfo(user) {
   const meta = user.user_metadata || {};
   const name = meta.full_name || user.email;
   const avatar = meta.avatar_url;
+  const dbUser = state.currentUser || {};
 
   container.innerHTML = `
-    ${avatar ? `<img src="${avatar}" alt="" class="user-avatar" />` : ""}
-    <span class="user-name">${name}</span>
-    <button class="btn-icon btn-logout" id="logoutBtn" title="Cerrar sesión">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <polyline points="16 17 21 12 16 7"/>
-        <line x1="21" y1="12" x2="9" y2="12"/>
-      </svg>
-    </button>
+    <div class="dropdown user-dropdown">
+      <button class="user-avatar-btn" id="userAvatarBtn" title="Perfil">
+        ${avatar
+          ? `<img src="${avatar}" alt="" class="user-avatar" />`
+          : `<span class="user-avatar user-avatar-placeholder">${(name || "?")[0].toUpperCase()}</span>`
+        }
+      </button>
+      <div class="dropdown-menu user-profile-menu" id="userProfileMenu">
+        <div class="profile-form">
+          <label class="profile-label">Nombre</label>
+          <input type="text" class="profile-input" id="profileName" value="${escapeAttr(dbUser.name || name)}" />
+          <label class="profile-label">Pagina en Casiopea</label>
+          <input type="url" class="profile-input" id="profileUrl" value="${escapeAttr(dbUser.profile_url || "")}" placeholder="https://wiki.ead.pucv.cl/..." />
+          <div class="profile-actions">
+            <button class="btn-sm btn-primary" id="profileSaveBtn">Guardar</button>
+            <button class="btn-sm btn-logout-sm" id="logoutBtn">Salir</button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
   container.style.display = "flex";
+
+  const avatarBtn = container.querySelector("#userAvatarBtn");
+  const menu = container.querySelector("#userProfileMenu");
+
+  avatarBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.classList.toggle("open");
+  });
+
+  // Close on outside click
+  document.addEventListener("click", (e) => {
+    if (!container.contains(e.target)) menu?.classList.remove("open");
+  });
+
+  container.querySelector("#profileSaveBtn")?.addEventListener("click", async () => {
+    const newName = document.getElementById("profileName")?.value.trim();
+    const newUrl = document.getElementById("profileUrl")?.value.trim();
+    try {
+      const updated = await auth.updateProfile({ name: newName, profile_url: newUrl });
+      if (updated) {
+        state.currentUser = { ...state.currentUser, ...updated };
+        showToastGlobal("Perfil actualizado");
+        menu?.classList.remove("open");
+      }
+    } catch (err) {
+      console.error("Error updating profile:", err);
+    }
+  });
 
   container.querySelector("#logoutBtn")?.addEventListener("click", () => {
     if (window.netlifyIdentity) {
       window.netlifyIdentity.logout();
     }
   });
+}
+
+function escapeAttr(s) {
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function showToastGlobal(msg) {
+  const toast = document.createElement("div");
+  toast.className = "excerpt-created-toast";
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  toast.addEventListener("animationend", () => toast.remove());
 }
 
 function showDevInfo() {
