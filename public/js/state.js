@@ -311,6 +311,10 @@ export async function removeConceptFromExcerpt(excerptId, conceptId) {
         delete state.excerpts[excerptId];
       }
     }
+    // Rule: no orphan concepts — backend already deleted if 0 excerpts
+    if (result?.concept_deleted) {
+      delete state.concepts[conceptId];
+    }
     notify();
     return result;
   } catch (e) {

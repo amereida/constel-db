@@ -111,8 +111,19 @@ export default async (req, context) => {
       excerpt_deleted = true;
     }
 
+    // Rule: no orphan concepts. If concept has 0 excerpts, delete it.
+    const [conceptRemaining] = await sql`
+      SELECT count(*) AS cnt FROM concept_excerpts WHERE concept_id = ${concept_id}
+    `;
+    let concept_deleted = false;
+    if (parseInt(conceptRemaining.cnt) === 0) {
+      await sql`DELETE FROM theme_concepts WHERE concept_id = ${concept_id}`;
+      await sql`DELETE FROM concepts WHERE id = ${concept_id}`;
+      concept_deleted = true;
+    }
+
     await logActivity(user.id, "unlink_excerpt", "concept", concept_id, { excerpt_id });
-    return json({ ok: true, excerpt_deleted });
+    return json({ ok: true, excerpt_deleted, concept_deleted });
   }
 
   // POST — create

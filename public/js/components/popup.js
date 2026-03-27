@@ -12,11 +12,8 @@ import { getCurrentSourceRaw } from "./text-highlighter.js";
 export function initExcerptPopup({ readerContent, onSelection }) {
   let tempHighlight = null;
 
-  readerContent.addEventListener("mouseup", (e) => {
-    // Don't intercept clicks on existing marks (those open the view popover)
-    if (e.target.closest("mark[data-excerpt]")) return;
-    setTimeout(() => handleSelection(e), 10);
-  });
+  // NOTE: mouseup listener is now delegated from reader.js (event delegation).
+  // This module only exports handleSelection and cleanup helpers.
 
   function handleSelection(e) {
     const sel = window.getSelection();
@@ -95,5 +92,13 @@ export function initExcerptPopup({ readerContent, onSelection }) {
     }
   }
 
-  return { cleanup, detachHighlight, removeTempHighlight };
+  /**
+   * Trigger selection handling from external event delegation.
+   * Called by reader.js mouseup handler.
+   */
+  function triggerSelection() {
+    handleSelection();
+  }
+
+  return { cleanup, detachHighlight, removeTempHighlight, triggerSelection };
 }

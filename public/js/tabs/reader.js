@@ -26,10 +26,30 @@ let glossController = null;
 let selectedConceptId = null;
 let lastExcerptHash = "";
 export function initReaderTab() {
-  const readerContent = document.getElementById("readerTextContent");
+  const wrapper = document.querySelector(".reader-text-wrapper") || document.getElementById("readerTextContent");
+
+  // ── Event delegation: ONE listener for all mark clicks + text selection ──
+  // This covers .reader-content AND .reader-sidenotes, present and future marks.
+  wrapper.addEventListener("click", (e) => {
+    const mark = e.target.closest("mark[data-excerpt]");
+    if (mark) {
+      e.stopPropagation();
+      showExcerptPopover(mark.dataset.excerpt, mark);
+      return;
+    }
+  });
+
+  wrapper.addEventListener("mouseup", (e) => {
+    // Don't intercept clicks on existing marks
+    if (e.target.closest("mark[data-excerpt]")) return;
+    // Don't intercept clicks on popover
+    if (e.target.closest(".excerpt-popover")) return;
+    // Delegate to popup.js triggerSelection (handles temp highlight + calls onSelection)
+    setTimeout(() => popupController?.triggerSelection(), 10);
+  });
 
   popupController = initExcerptPopup({
-    readerContent,
+    readerContent: wrapper,
     onSelection: ({ text, anchorEl, rect }) => {
       _pendingSelection = { text, anchorEl };
       showCreatePopover(anchorEl, null, rect);
@@ -540,10 +560,24 @@ function _renderPopover(anchorEl, mode, opts = {}) {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const cid = btn.dataset.conceptId;
-        if (excerptId) {
-          await unlinkConceptFromExcerpt(excerptId, cid);
-          // Re-render in edit mode
-          showEditPopover(excerptId, anchorEl);
+        if (!excerptId) return;
+        try {
+          const result = await removeConceptFromExcerpt(excerptId, cid);
+          // If excerpt was deleted (0 concepts left), close popover and re-render text
+          if (!state.excerpts[excerptId]) {
+            closeExcerptPopover();
+            await renderTextAndMinimap();
+            return;
+          }
+          // Otherwise re-render popover with updated pills
+          const updatedMark = document.querySelector(`mark[data-excerpt="${excerptId}"]`);
+          if (updatedMark) {
+            showEditPopover(excerptId, updatedMark);
+          } else {
+            closeExcerptPopover();
+          }
+        } catch (err) {
+          console.error("Error removing concept from excerpt:", err);
         }
       });
     });
@@ -774,7 +808,7 @@ function enterAddSectionMode(conceptId) {
   if (!c) return;
 
   addSectionConceptId = conceptId;
-  const readerContent = document.getElementById("readerTextContent");
+  const readerContent = document.querySelector(".reader-text-wrapper") || document.getElementById("readerTextContent");
   readerContent.classList.add("add-section-mode");
 
   showToast(`Selecciona texto para agregar otra § a [${c.label}]`);

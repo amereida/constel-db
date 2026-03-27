@@ -225,6 +225,54 @@ sequenceDiagram
     S->>R: notify → re-render
 ```
 
+## Event delegation (interaccion robusta)
+
+La interaccion con las marcas y la seleccion de texto usa **event delegation**:
+un solo listener por tipo de evento en `.reader-text-wrapper`, que cubre
+tanto `.reader-content` (texto) como `.reader-sidenotes` (notas al pie).
+
+```mermaid
+flowchart TD
+    W[".reader-text-wrapper"]
+    W -->|"click"| D{"target.closest\n mark data-excerpt"}
+    D -->|"Si"| P["showExcerptPopover\n(excerptId, markEl)"]
+    D -->|"No"| X[ignorar]
+    W -->|"mouseup"| S{"hay seleccion\n >= 3 chars?"}
+    S -->|"Si"| C["popup.triggerSelection\n -> showCreatePopover"]
+    S -->|"No"| X
+```
+
+Ventajas sobre listeners individuales por `<mark>`:
+- Funciona con marks creados dinamicamente (sin re-registrar)
+- Un solo listener es mas eficiente que N
+- Cubre sidenotes automaticamente
+- No se rompe al re-renderizar el texto
+
+Los listeners se registran **una sola vez** en `initReaderTab()` (reader.js).
+
+## Popover unificado
+
+Existe un solo componente popover para secciones, con dos modos:
+
+```mermaid
+stateDiagram-v2
+    [*] --> View: click en mark
+    [*] --> Create: seleccionar texto
+    View --> Edit: click lapiz
+    Edit --> View: Escape
+    View --> [*]: click fuera
+    Create --> [*]: Marcar o Cancelar
+    Edit --> [*]: excerpt eliminado
+```
+
+- **View**: pills de conceptos (read-only) + lapiz + basura
+- **Edit**: pills con X para quitar + input autocomplete para agregar
+- **Create**: input autocomplete + Marcar/Cancelar
+
+El popover se posiciona `absolute` dentro de `.reader-text-wrapper`
+(scrollea con el texto). Coordenadas via `getBoundingClientRect`
+relativo al wrapper.
+
 ## Permisos
 
 | Recurso | Crear | Editar | Eliminar |

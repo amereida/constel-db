@@ -155,8 +155,8 @@ export function renderHighlightedText(container, source, sourceId, onExcerptClic
     });
   });
 
-  // Attach event listeners to all marks
-  attachMarkListeners(container, onExcerptClick);
+  // No longer attaches individual mark listeners here.
+  // Event delegation is handled once in reader.js initReaderTab().
 }
 
 // ── Sidenotes ────────────────────────────────────────────────────────────
@@ -266,16 +266,7 @@ function setupSidenoteScrollHandler(container, sidenotesCol) {
   });
 }
 
-// ── Mark event listeners ──────────────────────────────────────────────────
-
-function attachMarkListeners(container, onExcerptClick) {
-  container.querySelectorAll("mark[data-excerpt]").forEach(mark => {
-    mark.addEventListener("click", (e) => {
-      e.stopPropagation();
-      onExcerptClick(mark.dataset.excerpt, mark);
-    });
-  });
-}
+// ── Mark event listeners (removed — now uses event delegation in reader.js)
 
 // ── Milestone helpers (exported for use by other modules) ────────────────
 
