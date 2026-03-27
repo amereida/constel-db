@@ -1,7 +1,7 @@
 // text-highlighter.js — renderiza Markdown como HTML con milestones de excerpts
 // Pipeline: Markdown source (con <!-- §b/§e --> milestones) → marked → HTML con <mark>
 
-import { state, getExcerptsForSource, removeExcerpt } from "../state.js";
+import { state, getExcerptsForSource } from "../state.js";
 import { marked } from "../lib/marked.esm.js";
 import markedFootnote from "../lib/marked-footnote.esm.js";
 
@@ -109,11 +109,6 @@ marked.use({
     },
   ],
 });
-
-// ── Tooltip singleton ────────────────────────────────────────────────────
-
-let _tooltip = null;
-let _tooltipTimeout = null;
 
 // ── Current source raw text (for popup offset search) ────────────────────
 
@@ -279,106 +274,7 @@ function attachMarkListeners(container, onExcerptClick) {
       e.stopPropagation();
       onExcerptClick(mark.dataset.excerpt, mark);
     });
-
-    mark.addEventListener("mouseenter", () => {
-      clearTimeout(_tooltipTimeout);
-      showExcerptTooltip(mark, onExcerptClick);
-    });
-
-    mark.addEventListener("mouseleave", () => {
-      _tooltipTimeout = setTimeout(hideExcerptTooltip, 250);
-    });
   });
-}
-
-// ── Tooltip ───────────────────────────────────────────────────────────────
-
-function showExcerptTooltip(mark, onExcerptClick) {
-  const excId = mark.dataset.excerpt;
-  const exc = state.excerpts[excId];
-  if (!exc) return;
-
-  if (!_tooltip) {
-    _tooltip = document.createElement("div");
-    _tooltip.className = "excerpt-tooltip";
-    document.body.appendChild(_tooltip);
-
-    _tooltip.addEventListener("mouseenter", () => {
-      clearTimeout(_tooltipTimeout);
-    });
-    _tooltip.addEventListener("mouseleave", () => {
-      _tooltipTimeout = setTimeout(hideExcerptTooltip, 200);
-    });
-  }
-
-  const concepts = exc.conceptIds
-    .map(cid => state.concepts[cid])
-    .filter(Boolean);
-
-  const conceptChips = concepts.map(c =>
-    `<span class="tooltip-concept">${escapeHtml(c.label)}</span>`
-  ).join(" ");
-
-  const trashSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
-
-  _tooltip.innerHTML = `
-    <div class="tooltip-concepts">${conceptChips}</div>
-    <div class="tooltip-actions">
-      <button class="tooltip-btn tooltip-delete" data-action="delete" title="Eliminar seccion">${trashSvg}</button>
-    </div>
-    <div class="tooltip-confirm" style="display:none">
-      <span class="tooltip-confirm-msg">Eliminar seccion?</span>
-      <button class="tooltip-confirm-yes">Eliminar</button>
-      <button class="tooltip-confirm-no">No</button>
-    </div>
-  `;
-
-  // posicionar
-  const rect = mark.getBoundingClientRect();
-  _tooltip.style.display = "flex";
-  _tooltip.classList.remove("confirming");
-
-  const tooltipRect = _tooltip.getBoundingClientRect();
-  let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
-  let top = rect.top - tooltipRect.height - 6;
-
-  if (top < 4) top = rect.bottom + 6;
-  left = Math.max(4, Math.min(window.innerWidth - tooltipRect.width - 4, left));
-
-  _tooltip.style.left = left + "px";
-  _tooltip.style.top = top + "px";
-
-  _tooltip.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    _tooltip.classList.add("confirming");
-    _tooltip.querySelector(".tooltip-confirm").style.display = "flex";
-  });
-
-  _tooltip.querySelector(".tooltip-confirm-yes")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    removeExcerpt(excId);
-    hideExcerptTooltip();
-  });
-
-  _tooltip.querySelector(".tooltip-confirm-no")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    _tooltip.classList.remove("confirming");
-    _tooltip.querySelector(".tooltip-confirm").style.display = "none";
-  });
-
-  _tooltip.querySelectorAll(".tooltip-concept").forEach((chip) => {
-    chip.addEventListener("click", (e) => {
-      e.stopPropagation();
-      onExcerptClick(excId);
-      hideExcerptTooltip();
-    });
-  });
-}
-
-function hideExcerptTooltip() {
-  if (_tooltip) {
-    _tooltip.style.display = "none";
-  }
 }
 
 // ── Milestone helpers (exported for use by other modules) ────────────────

@@ -432,6 +432,7 @@
 .reader-text-wrapper {
   display: flex;
   min-height: 100%;
+  position: relative;
 }
 
 .reader-content {
@@ -614,115 +615,6 @@ mark[data-excerpt].mark-hidden {
 }
 
 /* ── Excerpt tooltip ─────────────────────────────────────────────────── */
-.excerpt-tooltip {
-  position: fixed;
-  z-index: 1100;
-  display: none;
-  align-items: center;
-  gap: var(--space-xs);
-  background: var(--surface);
-  color: var(--ink);
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  pointer-events: auto;
-}
-
-.tooltip-concepts {
-  display: flex;
-  gap: var(--space-xs);
-  align-items: center;
-}
-
-.tooltip-concept {
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.tooltip-concept:hover {
-  text-decoration: underline;
-}
-
-.tooltip-actions {
-  display: flex;
-  gap: 2px;
-  margin-left: var(--space-xs);
-  border-left: 1px solid var(--border);
-  padding-left: var(--space-xs);
-}
-
-.tooltip-btn {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: var(--radius);
-  font-size: 0.8125rem;
-  opacity: 0.6;
-  transition: opacity 0.15s, color 0.15s;
-}
-
-.tooltip-btn:hover {
-  opacity: 1;
-  color: var(--ink);
-}
-
-.tooltip-btn.tooltip-delete {
-  opacity: 0.5;
-}
-
-.tooltip-btn.tooltip-delete:hover {
-  opacity: 1;
-  color: var(--danger, #c44);
-}
-
-/* ── Confirm delete toast (inline en tooltip) ── */
-.excerpt-tooltip.confirming .tooltip-concepts,
-.excerpt-tooltip.confirming .tooltip-actions {
-  display: none;
-}
-
-.tooltip-confirm {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--font-size-sm);
-}
-
-.tooltip-confirm-msg {
-  color: var(--ink);
-}
-
-.tooltip-confirm-yes {
-  background: transparent;
-  border: none;
-  color: var(--danger, #c44);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: var(--font-size-sm);
-  padding: 2px 6px;
-  border-radius: var(--radius);
-}
-
-.tooltip-confirm-yes:hover {
-  background: var(--danger, #c44);
-  color: white;
-}
-
-.tooltip-confirm-no {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  padding: 2px 6px;
-}
-
 /* ── Modo "agregar sección" ──────────────────────────────────────────── */
 .reader-content.add-section-mode {
   cursor: text;

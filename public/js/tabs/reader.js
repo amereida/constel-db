@@ -30,11 +30,9 @@ export function initReaderTab() {
 
   popupController = initExcerptPopup({
     readerContent,
-    onSelection: ({ text, anchorEl }) => {
-      // Store the selected text for handleCreateExcerpt
+    onSelection: ({ text, anchorEl, rect }) => {
       _pendingSelection = { text, anchorEl };
-      // Show the create popover above the selection
-      showCreatePopover(anchorEl);
+      showCreatePopover(anchorEl, null, rect);
     },
   });
 
@@ -319,7 +317,7 @@ function renderConceptDetailExcerpts(conceptId) {
 
   container.innerHTML = html;
 
-  // click excerpt → scroll or navigate
+  // click excerpt → scroll to mark in text + open popover there
   container.querySelectorAll(".concept-detail-excerpt").forEach(el => {
     el.addEventListener("click", (e) => {
       if (e.target.classList.contains("excerpt-remove")) return;
@@ -327,7 +325,13 @@ function renderConceptDetailExcerpts(conceptId) {
       const srcId = el.dataset.sourceId;
 
       if (srcId === currentSourceId) {
-        scrollToExcerpt(document.getElementById("readerTextContent"), excId);
+        const readerContent = document.getElementById("readerTextContent");
+        scrollToExcerpt(readerContent, excId);
+        // Open the popover on the mark in the text (not on the sidebar item)
+        setTimeout(() => {
+          const markEl = readerContent.querySelector(`mark[data-excerpt="${excId}"]`);
+          if (markEl) showExcerptPopover(excId, markEl);
+        }, 400); // wait for scroll to finish
       } else {
         navigateTo("reader", { src: getSourceSlug(srcId), exc: excId });
       }
@@ -442,13 +446,13 @@ function showEditPopover(excerptId, markEl) {
  * Show popover for creating a new excerpt from text selection.
  * Replaces the old fixed #excerptPopup.
  */
-function showCreatePopover(anchorEl, range) {
+function showCreatePopover(anchorEl, range, rect) {
   closeExcerptPopover();
-  _renderPopover(anchorEl, "create", { range });
+  _renderPopover(anchorEl, "create", { range, rect });
 }
 
 function _renderPopover(anchorEl, mode, opts = {}) {
-  const { excerptId, range } = opts;
+  const { excerptId, range, rect: overrideRect } = opts;
   const exc = excerptId ? state.excerpts[excerptId] : null;
   const concepts = exc
     ? exc.conceptIds.map(cid => state.concepts[cid]).filter(Boolean)
@@ -497,11 +501,11 @@ function _renderPopover(anchorEl, mode, opts = {}) {
   }
 
   // Position ABOVE the anchor
-  _positionPopover(popover, anchorEl);
+  _positionPopover(popover, anchorEl, overrideRect);
 
-  // Append
-  const scrollParent = anchorEl.closest(".reader-text-panel");
-  (scrollParent || document.body).appendChild(popover);
+  // Append to wrapper (scrolls with text content)
+  const wrapper = document.querySelector(".reader-text-wrapper");
+  (wrapper || document.body).appendChild(popover);
 
   // -- Events --
 
@@ -601,30 +605,39 @@ function _renderPopover(anchorEl, mode, opts = {}) {
   }, 100);
 }
 
-function _positionPopover(popover, anchorEl) {
-  const scrollParent = anchorEl.closest(".reader-text-panel");
-  const parentRect = scrollParent?.getBoundingClientRect() || { left: 0, top: 0 };
-  const rect = anchorEl.getBoundingClientRect();
+function _positionPopover(popover, anchorEl, overrideRect) {
+  // Position absolute inside .reader-text-wrapper so popover scrolls with text.
+  const wrapper = document.querySelector(".reader-text-wrapper");
+  const scrollParent = document.querySelector(".reader-text-panel");
+  if (!wrapper || !scrollParent) return;
 
   popover.style.position = "absolute";
+  popover.style.zIndex = "1200";
 
-  // Center horizontally — clamp to stay within container
-  const anchorCenterX = rect.left + rect.width / 2 - parentRect.left + (scrollParent?.scrollLeft || 0);
-  popover.style.left = `${Math.max(120, Math.min(anchorCenterX, (scrollParent?.clientWidth || 600) - 120))}px`;
+  // Get viewport rects
+  const rect = overrideRect || anchorEl.getBoundingClientRect();
+  const wrapperRect = wrapper.getBoundingClientRect();
+
+  // Convert viewport coords to wrapper-relative coords
+  const relCenterX = rect.left + rect.width / 2 - wrapperRect.left;
+  const relTop = rect.top - wrapperRect.top;
+  const relBottom = rect.bottom - wrapperRect.top;
+
+  // Clamp horizontal
+  const maxX = wrapper.clientWidth - 120;
+  popover.style.left = `${Math.max(100, Math.min(relCenterX, maxX))}px`;
   popover.style.transform = "translateX(-50%)";
 
-  // Check if there's space above (at least 80px from container top)
-  const spaceAbove = rect.top - parentRect.top;
+  // Above or below depending on viewport space
+  const viewportSpaceAbove = rect.top - scrollParent.getBoundingClientRect().top;
 
-  if (spaceAbove > 80) {
-    // Position ABOVE
-    popover.style.top = `${rect.top - parentRect.top + (scrollParent?.scrollTop || 0) - 8}px`;
+  if (viewportSpaceAbove > 120) {
+    popover.style.top = `${relTop - 8}px`;
     popover.style.transform += " translateY(-100%)";
     popover.classList.remove("popover-below");
     popover.classList.add("popover-above");
   } else {
-    // Position BELOW
-    popover.style.top = `${rect.bottom - parentRect.top + (scrollParent?.scrollTop || 0) + 8}px`;
+    popover.style.top = `${relBottom + 8}px`;
     popover.classList.remove("popover-above");
     popover.classList.add("popover-below");
   }

@@ -35,9 +35,12 @@ export function initExcerptPopup({ readerContent, onSelection }) {
       return;
     }
 
-    // Create temp highlight
+    // Capture the range rect BEFORE any DOM manipulation
     removeTempHighlight();
     const range = sel.getRangeAt(0);
+    const rangeRect = range.getBoundingClientRect();
+
+    // Try to create a visual highlight
     try {
       tempHighlight = document.createElement("mark");
       tempHighlight.className = "temp-highlight";
@@ -46,19 +49,14 @@ export function initExcerptPopup({ readerContent, onSelection }) {
       tempHighlight = null;
     }
 
-    // Create a positioning anchor even if surroundContents failed.
-    // We insert a zero-width span at the start of the selection for positioning.
-    let anchorEl = tempHighlight;
-    if (!anchorEl) {
-      anchorEl = document.createElement("span");
-      anchorEl.className = "temp-anchor";
-      anchorEl.style.cssText = "display:inline;position:relative;";
-      range.insertNode(anchorEl);
-    }
-
     sel.removeAllRanges();
 
-    onSelection({ text, anchorEl });
+    // Pass the rect for positioning (always accurate, unlike anchor elements)
+    onSelection({
+      text,
+      anchorEl: tempHighlight || readerContent,
+      rect: rangeRect,
+    });
   }
 
   function findInSource(cleanSource, selectedText) {
@@ -83,8 +81,6 @@ export function initExcerptPopup({ readerContent, onSelection }) {
 
   function cleanup() {
     removeTempHighlight();
-    // Remove temp anchor spans
-    readerContent.querySelectorAll(".temp-anchor").forEach(el => el.remove());
   }
 
   /**

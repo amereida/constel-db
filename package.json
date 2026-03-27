@@ -1,6 +1,6 @@
 {
   "name": "constel-db",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "type": "module",
   "description": "con§tel — herramienta colaborativa de análisis temático de corpus textuales",
   "private": true,
